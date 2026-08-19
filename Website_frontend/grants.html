@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>All Grants — Sensio</title>
+  <link rel="stylesheet" href="base.css" />
+  <link rel="stylesheet" href="components.css" />
+  <link rel="stylesheet" href="pages.css" />
+</head>
+<body class="theme-grants">
+
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">S</div>
+      <div class="sidebar-logo-text">Sensio<span>Dashboard</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Main</div>
+      <a href="index.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Dashboard</span>
+      </a>
+      <a href="tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tenders</span>
+      </a>
+      <a href="grants.html" class="nav-item active">
+        <span class="nav-icon"></span><span class="nav-label">Grants</span>
+      </a>
+      <a href="saved.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Saved</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Insights</div>
+      <a href="analytics-tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tender Analytics</span>
+      </a>
+      <a href="analytics-grants.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Grant Analytics</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Session</div>
+      <button class="nav-item" onclick="quitApp()" style="background:none; border:none; cursor:pointer; width:100%; text-align:left; font:inherit; color:inherit;">
+        <span class="nav-icon">⏻</span><span class="nav-label">Quit App</span>
+      </button>
+    </nav>
+  </aside>
+
+  <div class="main-content" id="mainContent">
+    <header class="topbar">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <button id="sidebarToggleBtn" class="btn btn-ghost" style="padding: 6px 10px; font-size: 14px;"><span>◀</span></button>
+        <div class="topbar-title">Grant Repositories</div>
+      </div>
+      <div class="topbar-actions">
+        <div class="avatar">S</div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <div class="page-header fade-in-up">
+        <h1>Scraped Pipeline Records</h1>
+        <p style="color: var(--text-muted); margin-top: 4px; font-size: 15px;">Apply real-time filters and review technical procurement files compiled across global portals.</p>
+      </div>
+
+      <div class="filters-bar fade-in-up">
+        <div class="search-bar" style="width:240px;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="liveSearchInput" placeholder="Search titles or keywords..." />
+        </div>
+
+        <select class="filter-select" id="countrySelector">
+          <option value="all">🌍 All Countries</option>
+        </select>
+
+        <select class="filter-select" id="statusSelector">
+          <option value="all">⚡ All Statuses</option>
+          <option value="active">Active Grants</option>
+          <option value="closing">Closing Soon (≤7 Days)</option>
+          <option value="opening">Opening Phase (Recent)</option>
+        </select>
+
+        <select class="filter-select" id="sectorSelector">
+          <option value="all">📂 All Categories</option>
+          <option value="health">Healthcare Sector</option>
+          <option value="defence">Defence Procurement</option>
+        </select>
+
+        <select class="filter-select" id="sortEngineSelector">
+          <option value="relevancy-desc">Sort: Relevancy Max ↓</option>
+          <option value="expiry-asc">Sort: Nearest Deadline ↑</option>
+          <option value="budget-desc">Sort: Value High → Low</option>
+        </select>
+
+        <div style="margin-left: auto; font-size: 13px; color: var(--text-muted);">
+          Counter: <span id="counterMetric" style="font-weight:700; color:var(--color-teal);">0</span> found
+        </div>
+      </div>
+
+      <div id="pipelineGridDisplay" class="grant-grid"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="grantModalOverlay">
+  <div class="modal" id="grantModal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Grant Specifications</div>
+      <button class="modal-close" data-modal-close="grantModalOverlay">✕</button>
+    </div>
+    <div id="modalGrid"></div>
+    <div class="modal-section">
+      <div class="modal-section-label">Scope Details</div>
+      <div id="modalDescription"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Eligibility Guidelines</div>
+      <div id="modalEligibility"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Raw Data Export Asset</div>
+      <div id="modalLink"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal-close="grantModalOverlay">Close Modal</button>
+    </div>
+  </div>
+</div>
+
+<script src="shared-ui.js"></script>
+<script src="grants-data.js"></script>
+<script src="grants-ui.js"></script>
+<script src="grants.js"></script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Grant Analytics — Sensio</title>
+  <link rel="stylesheet" href="base.css" />
+  <link rel="stylesheet" href="components.css" />
+  <link rel="stylesheet" href="pages.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="theme-grants">
+
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">S</div>
+      <div class="sidebar-logo-text">Sensio<span>Dashboard</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Main</div>
+      <a href="index.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Dashboard</span>
+      </a>
+      <a href="tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tenders</span>
+      </a>
+      <a href="grants.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Grants</span>
+      </a>
+      <a href="saved.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Saved</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Insights</div>
+      <a href="analytics-tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tender Analytics</span>
+      </a>
+      <a href="analytics-grants.html" class="nav-item active">
+        <span class="nav-icon"></span><span class="nav-label">Grant Analytics</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Session</div>
+      <button class="nav-item" onclick="quitApp()" style="background:none; border:none; cursor:pointer; width:100%; text-align:left; font:inherit; color:inherit;">
+        <span class="nav-icon">⏻</span><span class="nav-label">Quit App</span>
+      </button>
+    </nav>
+  </aside>
+
+  <div class="main-content" id="mainContent">
+    <header class="topbar">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <button id="sidebarToggleBtn" class="btn btn-ghost" style="padding: 6px 10px; font-size: 14px;"><span>◀</span></button>
+        <div class="topbar-title">Global Analytics Matrix</div>
+      </div>
+      <div class="topbar-actions">
+        <div class="avatar">S</div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <div class="page-header fade-in-up" style="margin-bottom: 32px;">
+        <h1>Procurement Intelligence Analytics</h1>
+        <p style="color: var(--text-muted); font-size: 15px; margin-top: 4px;">Dynamic telemetry charts mapping capital distribution and geographical market density across the system data cache.</p>
+      </div>
+
+      <div class="metrics-row fade-in-up">
+        <div class="metric-card">
+          <div class="metric-title">Total Monitored Value</div>
+          <div id="kpiTotalBudget" class="metric-value">₹0 Cr</div>
+          <div class="metric-desc">Aggregated gross capital tracking pipeline</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Mean Alignment Index</div>
+          <div id="kpiAvgRelevancy" class="metric-value">0%</div>
+          <div class="metric-desc">Average model accuracy score rating</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Active Contract Tracks</div>
+          <div id="kpiActiveCount" class="metric-value">0</div>
+          <div class="metric-desc">Unexpired files open for submission</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Primary Sector Anchor</div>
+          <div id="kpiPrimarySector" class="metric-value">None</div>
+          <div class="metric-desc">Highest volume vector focus category</div>
+        </div>
+      </div>
+
+      <div class="analytics-grid fade-in-up">
+        <div class="chart-card">
+          <div class="chart-title">📊 Sector Stream Volume Share Allocation</div>
+          <div style="height: 260px; position: relative;"><canvas id="sectorVolumeChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🌍 Regional Density Portfolio Concentration</div>
+          <div style="height: 260px; position: relative;"><canvas id="countryVolumeChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">💳 Capital Budget Allocation Matrix (by Country)</div>
+          <div style="height: 260px; position: relative;"><canvas id="budgetAllocationChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🎯 Relevancy Performance Distribution Spread</div>
+          <div style="height: 260px; position: relative;"><canvas id="relevancyDistributionChart"></canvas></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="shared-ui.js"></script>
+<script src="grants-data.js"></script>
+<script src="grants-ui.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    window.SensioGrantData.ready.then(calculateAndRenderAnalyticsCharts);
+  });
+
+  function calculateAndRenderAnalyticsCharts() {
+    const grants = window.SensioGrantData?.grants || [];
+    if (grants.length === 0) return;
+
+    // Dynamic Accumulators
+    const sectors = { health: 0, defence: 0 };
+    let sumBudget = 0;
+    let sumRelevancy = 0;
+    let openContractsCount = 0;
+    const countryDataRecords = {};
+
+    grants.forEach(t => {
+      if (sectors[t.category] !== undefined) sectors[t.category]++;
+      sumBudget += t.budgetINR;
+      sumRelevancy += t.relevancyScore;
+
+      if (calculateDaysRemaining(t.closingDate) >= 0) openContractsCount++;
+
+      if (!countryDataRecords[t.country]) {
+        countryDataRecords[t.country] = { totalVolume: 0, cumulativeBudget: 0, cumulativeRelevancy: 0 };
+      }
+      countryDataRecords[t.country].totalVolume++;
+      countryDataRecords[t.country].cumulativeBudget += t.budgetINR;
+      countryDataRecords[t.country].cumulativeRelevancy += t.relevancyScore;
+    });
+
+    // Update KPI text displays
+    document.getElementById('kpiTotalBudget').textContent = '₹' + (sumBudget / 10000000).toFixed(1) + ' Cr';
+    document.getElementById('kpiAvgRelevancy').textContent = ((sumRelevancy / grants.length) * 100).toFixed(0) + '%';
+    document.getElementById('kpiActiveCount').textContent = openContractsCount;
+    document.getElementById('kpiPrimarySector').textContent = sectors.health >= sectors.defence ? 'Healthcare' : 'Defence Vector';
+
+    const uniqueCountriesArr = Object.keys(countryDataRecords);
+    const chartCountryVolumes = uniqueCountriesArr.map(c => countryDataRecords[c].totalVolume);
+    const chartCountryBudgetsM = uniqueCountriesArr.map(c => (countryDataRecords[c].cumulativeBudget / 1000000).toFixed(1));
+    const chartCountryAvgRelevancies = uniqueCountriesArr.map(c => ((countryDataRecords[c].cumulativeRelevancy / countryDataRecords[c].totalVolume) * 100).toFixed(0));
+
+    // Graph 1: Sector volume share breakdown (Doughnut)
+    new Chart(document.getElementById('sectorVolumeChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Healthcare Sector', 'Defence Procurement'],
+        datasets: [{
+          data: [sectors.health, sectors.defence],
+          backgroundColor: ['#0c4a6e', '#0284c7'],
+          borderWidth: 2,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { padding: 16 } } }
+      }
+    });
+
+    // Graph 2: Country Density Count (Bar Chart)
+    new Chart(document.getElementById('countryVolumeChart'), {
+      type: 'bar',
+      data: {
+        labels: uniqueCountriesArr,
+        datasets: [{
+          label: 'Total Grants Monitored',
+          data: chartCountryVolumes,
+          backgroundColor: '#0284c7',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // Graph 3: Total Estimated Budget by Country (Horizontal Bar Chart)
+    new Chart(document.getElementById('budgetAllocationChart'), {
+      type: 'bar',
+      indexAxis: 'y',
+      data: {
+        labels: uniqueCountriesArr,
+        datasets: [{
+          label: 'Allocated Capital (Millions ₹)',
+          data: chartCountryBudgetsM,
+          backgroundColor: '#0284c7',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { beginAtZero: true }, y: { grid: { display: false } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // Graph 4: Avg Match Relevancy per Location (Polar Area Chart)
+    new Chart(document.getElementById('relevancyDistributionChart'), {
+      type: 'polarArea',
+      data: {
+        labels: uniqueCountriesArr,
+        datasets: [{
+          label: 'Mean Matching Value (%)',
+          data: chartCountryAvgRelevancies,
+          backgroundColor: [
+            'rgba(12, 74, 110, 0.75)',
+            'rgba(2, 132, 199, 0.75)',
+            'rgba(202, 138, 4, 0.75)',
+            'rgba(71, 85, 105, 0.75)',
+            'rgba(220, 38, 38, 0.75)',
+            'rgba(14, 165, 233, 0.75)'
+          ]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8 } } }
+      }
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sensio — Dashboard</title>
+  <link rel="stylesheet" href="base.css" />
+  <link rel="stylesheet" href="components.css" />
+  <link rel="stylesheet" href="pages.css" />
+</head>
+<body>
+
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">S</div>
+      <div class="sidebar-logo-text">Sensio<span>Dashboard</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Main</div>
+      <a href="index.html" class="nav-item active">
+        <span class="nav-icon"></span><span class="nav-label">Dashboard</span>
+      </a>
+      <a href="tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tenders</span>
+      </a>
+      <a href="grants.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Grants</span>
+      </a>
+      <a href="saved.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Saved</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Insights</div>
+      <a href="analytics-tenders.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Tender Analytics</span>
+      </a>
+      <a href="analytics-grants.html" class="nav-item">
+        <span class="nav-icon"></span><span class="nav-label">Grant Analytics</span>
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:24px;">Session</div>
+      <button class="nav-item" onclick="quitApp()" style="background:none; border:none; cursor:pointer; width:100%; text-align:left; font:inherit; color:inherit;">
+        <span class="nav-icon">⏻</span><span class="nav-label">Quit App</span>
+      </button>
+    </nav>
+  </aside>
+
+  <div class="main-content" id="mainContent">
+    <header class="topbar">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <button id="sidebarToggleBtn" class="btn btn-ghost" style="padding: 6px 10px; font-size: 14px;"><span>◀</span></button>
+        <div class="topbar-title">Intelligence Dashboard</div>
+      </div>
+      <div class="topbar-actions">
+        <div class="avatar">S</div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <div class="dashboard-hero fade-in-up">
+        <h1 class="hero-title">Sensio <span>Intelligence</span> Hub</h1>
+        <p class="hero-subtitle">One dashboard for every open tender and grant the scrapers have found this week.</p>
+      </div>
+
+      <div class="fade-in-up">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🏆 Top 5 Tenders by Relevancy</div>
+            <div class="section-subtitle"><span id="tendersCountMetric">0</span> tenders in the current pipeline sweep</div>
+          </div>
+          <a href="tenders.html" class="section-action">Browse All Tenders →</a>
+        </div>
+        <div id="topTendersContainer" class="tender-grid"></div>
+      </div>
+
+      <div class="fade-in-up" style="margin-top:40px;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🏆 Top 5 Grants by Relevancy</div>
+            <div class="section-subtitle"><span id="grantsCountMetric">0</span> grants in the current pipeline sweep</div>
+          </div>
+          <a href="grants.html" class="section-action">Browse All Grants →</a>
+        </div>
+        <div id="topGrantsContainer" class="grant-grid"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="tenderModalOverlay">
+  <div class="modal" id="tenderModal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Tender Details</div>
+      <button class="modal-close" data-modal-close="tenderModalOverlay">✕</button>
+    </div>
+    <div id="modalGrid"></div>
+    <div class="modal-section">
+      <div class="modal-section-label">Scope Description</div>
+      <div id="modalDescription"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Eligibility Protocols</div>
+      <div id="modalEligibility"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Action Redirects</div>
+      <div id="modalLink"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal-close="tenderModalOverlay">Dismiss View</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="grantModalOverlay">
+  <div class="modal" id="grantModal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Grant Details</div>
+      <button class="modal-close" data-modal-close="grantModalOverlay">✕</button>
+    </div>
+    <div id="modalGrid"></div>
+    <div class="modal-section">
+      <div class="modal-section-label">Scope Description</div>
+      <div id="modalDescription"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Eligibility Protocols</div>
+      <div id="modalEligibility"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Action Redirects</div>
+      <div id="modalLink"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-modal-close="grantModalOverlay">Dismiss View</button>
+    </div>
+  </div>
+</div>
+
+<script src="shared-ui.js"></script>
+<script src="tenders-data.js"></script>
+<script src="grants-data.js"></script>
+<script src="tenders-ui.js"></script>
+<script src="grants-ui.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
