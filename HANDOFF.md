@@ -296,6 +296,35 @@ above for why that's safe for how this app connects.
 
 ---
 
+## Ideas for future versions
+
+- **Claude fallback in CI currently costs real money (`ANTHROPIC_API_KEY`),
+  not your Pro/Max subscription.** `Scraper_backend_grants/llm_fallback.py`
+  shells out to the `claude` CLI when every Gemini key is exhausted — same
+  pattern as `LinkedIn Automation/scripts/generator.py`, which only ever runs
+  locally on a machine with an interactive `claude login` already done
+  (Pro/Max subscription, no extra cost). GitHub's hosted runners are fresh,
+  stateless VMs every run — there's no persisted login to reuse and no human
+  to click through a browser login unattended — so `scrape-grants.yml`
+  authenticates via `ANTHROPIC_API_KEY` instead (Anthropic Console, pay-per-
+  token, a repo secret) to make the fallback work there at all.
+  If the per-token cost ever matters enough to avoid: register a **self-hosted
+  runner** (your own machine or a persistent VM, added to this repo under
+  Settings -> Actions -> Runners) and point `scrape-grants.yml`'s
+  `runs-on:` at it instead of `ubuntu-latest`. Run `claude login` on that
+  machine once — after that, drop the `ANTHROPIC_API_KEY` env var from the
+  workflow entirely; `llm_fallback.py` just shells out to `claude` and uses
+  whatever auth is already configured on the machine it runs on, so the
+  fallback reuses the Pro/Max subscription for free from then on. Tradeoff:
+  that machine needs to actually be on and reachable whenever the scheduled
+  workflow fires (currently Sunday 4pm IST for grants).
+- **Tenders has no Claude fallback at all** (`main.py` just drops the item
+  when Gemini's exhausted) — porting `llm_fallback.py` over would need the
+  same CI setup (Node + the `claude` CLI + auth) added to
+  `scrape-tenders.yml` too.
+
+---
+
 ## Access you'll need
 
 - The Supabase project (dashboard access, to read `DATABASE_URL`, restore a
