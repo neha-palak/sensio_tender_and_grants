@@ -51,3 +51,12 @@ CREATE TABLE IF NOT EXISTS saved_items (
 );
 
 CREATE INDEX IF NOT EXISTS saved_items_domain_item_idx ON saved_items (domain, item_id);
+
+-- The app connects as the `postgres` role (via DATABASE_URL), which bypasses
+-- RLS -- so this doesn't affect db.py. It blocks Supabase's auto-generated
+-- PostgREST API (the anon/authenticated keys), which this project never uses.
+-- No policies needed: RLS-enabled + zero policies = deny by default to those
+-- keys.
+ALTER TABLE tenders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saved_items ENABLE ROW LEVEL SECURITY;
