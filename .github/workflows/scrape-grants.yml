@@ -32,6 +32,12 @@ jobs:
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Install libpq (psycopg2 builds from source, not -binary)
+        run: sudo apt-get install -y libpq-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

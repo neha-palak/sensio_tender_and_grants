@@ -1,4 +1,4 @@
-"""Weekly "dashboard is live" reminder email. Run: python3 notify_weekly.py
+"""Weekly "dashboard is live" reminder email. Run: python3 Website_frontend/notify_weekly.py
 
 Sender/recipient/dashboard URL are env vars, not hardcoded, so swapping the
 sending account (e.g. when repo ownership transfers) or the recipient list is
@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from email.mime.text import MIMEText
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db
 
 SENDER_EMAIL = os.environ["SENDER_EMAIL"]

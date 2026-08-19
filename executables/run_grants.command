@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 trap 'echo; echo "Failed -- see error above."; read -p "Press Enter to close..."' ERR
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Python not found. Install it from https://python.org/downloads (or 'brew install python')."

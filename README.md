@@ -39,7 +39,7 @@ connection string (see `.env.example` for why not the direct one).
 ## Run
 
 ```bash
-python3 desktop_app.py          # opens the dashboard in your browser
+python3 Website_frontend/desktop_app.py   # opens the dashboard in your browser
 # or, for dev:
 cd Website_frontend && python3 -m flask --app server run --port 5001
 ```

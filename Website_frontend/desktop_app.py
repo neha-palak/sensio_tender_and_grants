@@ -21,7 +21,7 @@ for _name in ("stdout", "stderr"):
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-from Website_frontend.server import app, PORT
+from server import app, PORT
 
 HOST = "127.0.0.1"
 URL = f"http://{HOST}:{PORT}"

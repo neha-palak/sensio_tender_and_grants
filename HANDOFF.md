@@ -52,10 +52,26 @@ per-founder-file locking dance are gone entirely, not adapted.
   uploaded by the GitHub Action. The write that matters is a new, gated
   Postgres upsert in each `datasetManager.py` (`upsert_rows_to_postgres`,
   only runs when `DATABASE_URL` is set).
-- **Scheduled via two GitHub Actions workflows**, not a founder's cron/manual
-  run: `scrape-tenders.yml` Saturdays 10:30 UTC (4pm IST), `scrape-grants.yml`
-  Sundays 10:30 UTC (4pm IST). Both also support manual `workflow_dispatch`.
-  Two repo secrets required: `DATABASE_URL`, `GEMINI_API_KEYS`.
+- **Scheduled via three GitHub Actions workflows**, not a founder's
+  cron/manual run: `scrape-tenders.yml` Saturdays 10:30 UTC (4pm IST),
+  `scrape-grants.yml` Sundays 10:30 UTC (4pm IST), `notify-weekly.yml`
+  Thursdays 01:30 UTC (7am IST) — a "dashboard is live" email with that
+  week's top tender/grant. All three also support manual `workflow_dispatch`.
+  Repo secrets required: `DATABASE_URL`, `GEMINI_API_KEYS`,
+  `ANTHROPIC_API_KEY` (Claude fallback in CI — see Key decisions),
+  `SENDER_EMAIL`/`SENDER_APP_PASSWORD`/`RECIPIENT_EMAIL`/`DASHBOARD_URL` (the
+  weekly email).
+- **Both scrapers use `gemini-3.6-flash`** (upgraded from `gemini-2.5-flash`
+  after confirming it's real and working against the actual API — see
+  Landmines for the `thinkingConfig` incompatibility that came with it).
+- **Local runs get Claude fallback for free; CI runs pay per-token for it.**
+  `run_tenders.command`/`run_grants.command` (Mac) and the matching `.bat`
+  files (Windows) set up every dependency and run a scraper locally, where
+  `llm_fallback.py` reuses your already-logged-in Claude Code Pro/Max
+  session at no extra cost. The GitHub Actions runs authenticate the same
+  `claude` CLI via `ANTHROPIC_API_KEY` instead, since hosted runners have no
+  persistent login to reuse — see "Ideas for future versions" for the
+  self-hosted-runner path that would make CI free too.
 - **No login anywhere** — same call as v1 and as Production Log. Founder
   identity is still just a typed name stored in browser local storage
   (`ensureFounderIdentity()`), now driving rows in the shared `saved_items`
@@ -72,13 +88,42 @@ Procfile                  `web: gunicorn --chdir Website_frontend server:app --b
                            0.0.0.0:$PORT` — Render's start command. Stays at repo
                            root (required by Render); --chdir points into
                            Website_frontend/ the same way local dev already did
-requirements.txt          Flask, flask-cors, pandas, openpyxl, psycopg2-binary,
+requirements.txt          Flask, flask-cors, pandas, openpyxl, psycopg2 (source
+                           build, NOT psycopg2-binary — see Landmines),
                            python-dotenv, gunicorn, plus every scraper dependency
                            (playwright, playwright-stealth, redis, google-genai,
-                           google-auth, httpx stack, pydantic stack, cryptography
-                           stack, tenacity) — one shared list for the whole repo
+                           google-auth, sentence-transformers, httpx stack,
+                           pydantic stack, cryptography stack, tenacity) — one
+                           shared list for the whole repo
+executables/               double-click launchers, kept out of the repo root
+  run_tenders.command,
+  run_grants.command,
+  run_tenders.bat,
+  run_grants.bat            Mac .command / Windows .bat pairs -- `cd .. ` back to
+                            repo root first (they live one level down), then
+                            create/reuse the shared .venv, install deps +
+                            Playwright's Chromium, check/start Redis (brew on Mac;
+                            Windows has no native package, so it just detects and
+                            points to WSL/Memurai), check/install the `claude`
+                            CLI, then run the respective scraper. This is the
+                            free-Claude-fallback path (Pro/Max login already on
+                            the machine) vs. CI's paid ANTHROPIC_API_KEY path
 
 Website_frontend/         the live dashboard app; imported as Website_frontend.server
+  desktop_app.py            local-dev launcher only (`python3
+                            Website_frontend/desktop_app.py`) -- opens the
+                            dashboard in a browser once Flask is accepting
+                            connections; imports as `from server import app, PORT`
+                            (same-directory, not package-qualified, since it lives
+                            next to server.py now). Not used in production --
+                            Render runs gunicorn directly via Procfile
+  notify_weekly.py           weekly email: subject "weekly tender&grant dashboard is
+                            live!", top tender + top grant by relevancy_score
+                            (skipping already-closed ones), a dashboard link. Reads
+                            Postgres directly via database.db (two dirname() calls
+                            to reach the repo root, same pattern server.py uses) --
+                            run standalone via notify-weekly.yml, not part of
+                            either scraper
   server.py                Flask API: Domain class + register_domain_routes() called
                             once per domain (tenders, grants) instead of hand-duplicated
                             route sets — /api/<plural>/sensio-stream, /save-<name>,
@@ -113,16 +158,27 @@ database/                 imported as `database.db` (server.py: `from database i
                             database.db.upsert_item monkeypatched
 
 Scraper_backend_tenders/  ported from Project_Tender_Tool/Scraper_backend/, scraping
-                           and LLM-filtration logic untouched
+                           logic untouched
   main.py                  Adapters, Playwright driver, Gemini extraction (now
-                            gemini-3.6-flash), Redis dedup, thread runner, pipeline
-                            entry point — no `if __name__` guard, runs top-level on
-                            import; NEVER import this module, only run it as a script
-  datasetManager.py         Live FX, budget/date parsing, Excel compiler — PLUS the
-                            new upsert_rows_to_postgres(), called right after
-                            excel_rows is built, gated on DATABASE_URL being set
+                            gemini-3.6-flash, no thinkingConfig -- see Landmines),
+                            Redis dedup, thread runner, pipeline entry point. Drops
+                            already-closed tenders before Layer 2/3 (status is
+                            computed at scrape time in build_tender_object). Falls
+                            back to Claude (llm_fallback.py) when every Gemini key
+                            is exhausted, same as grants. No `if __name__` guard,
+                            runs top-level on import; NEVER import this module,
+                            only run it as a script
+  datasetManager.py         Live FX, budget/date parsing, Excel compiler — PLUS
+                            upsert_rows_to_postgres(), called right after
+                            excel_rows is built, gated on DATABASE_URL being set.
+                            _budget_to_int keeps the decimal point (a naive
+                            [^\d] strip inflated budgets ~100x -- see Landmines)
   llm_filtration.py         10-point rubric scorer + Gemini key rotation
-                            (gemini-3.6-flash)
+                            (gemini-3.6-flash), falls back to Claude via
+                            _score_with_claude when every key is rate-limited
+  llm_fallback.py            Claude Code CLI fallback (ported from grants) --
+                            shells out to `claude --print`, no code difference
+                            from the grants copy beyond "tender"/"grant" wording
   semantic.py                Embedding model (sentence-transformers), cosine
                             similarity per sector — instantiates a real model at
                             import time, so this is also not import-safe for tests
@@ -130,22 +186,28 @@ Scraper_backend_tenders/  ported from Project_Tender_Tool/Scraper_backend/, scra
                             unchanged from v1
 
 Scraper_backend_grants/   ported from Project_CFP_Tool/Scraper_backend/scripts/,
-                           same treatment as tenders, with the extra
-                           llm_fallback.py (Claude CLI fallback — disabled in CI,
-                           see Landmines) and the BASE_DIR fix described below
+                           same treatment as tenders (Claude fallback, closed-item
+                           filter before Layer 2/3, gemini-3.6-flash, decimal-safe
+                           budget parsing) plus the BASE_DIR fix described in
+                           Landmines. llm_fallback.py is the original; tenders'
+                           copy was ported FROM this one
 
 .github/workflows/
   scrape-tenders.yml        Saturday 10:30 UTC cron + workflow_dispatch. Redis
-                            service container, Playwright install, runs
-                            `python -m Scraper_backend_tenders.main`, uploads the
-                            Excel workbook as a build artifact
-  scrape-grants.yml         Sunday 10:30 UTC cron + workflow_dispatch, same shape,
-                            plus USE_CLAUDE_FALLBACK=0 (see Landmines)
-
-desktop_app.py             still present for local dev convenience (opens the
-                            dashboard in a browser once Flask is accepting
-                            connections) — not used in production; Render runs
-                            gunicorn directly via Procfile
+                            service container, Node + `claude` CLI install,
+                            `apt-get install libpq-dev` (psycopg2 builds from
+                            source now -- see Landmines), Playwright install, runs
+                            `python -m Scraper_backend_tenders.main` with
+                            ANTHROPIC_API_KEY set (Claude fallback auth in CI --
+                            see Key decisions), uploads the Excel workbook as a
+                            build artifact
+  scrape-grants.yml         Sunday 10:30 UTC cron + workflow_dispatch, identical
+                            shape to scrape-tenders.yml
+  notify-weekly.yml          Thursday 01:30 UTC cron + workflow_dispatch, installs
+                            libpq-dev + psycopg2 directly (doesn't use
+                            requirements.txt, it's a much smaller dependency set),
+                            runs Website_frontend/notify_weekly.py with the email
+                            secrets + DATABASE_URL
 ```
 
 ---
@@ -210,16 +272,40 @@ above for why that's safe for how this app connects.
   repos.** GitHub Actions needs the code in the repo it's triggered from.
   `Project_Tender_Tool`/`Project_CFP_Tool` remain untouched as the v1
   reference/rollback.
-- **`USE_CLAUDE_FALLBACK=0` for the grants scraper in CI.** Its
-  `llm_fallback.py` shells out to a local `claude` CLI (an interactive Claude
-  Code login) when every Gemini key is rate-limited. No such login exists in
-  a GitHub Actions runner — disabling it explicitly is cleaner than letting
-  it fail-detect the missing binary at runtime.
+- **Claude fallback in CI via `ANTHROPIC_API_KEY`, not `USE_CLAUDE_FALLBACK=0`.**
+  Originally disabled entirely in CI (no `claude` login exists on a hosted
+  runner). Revisited once tenders also needed fallback parity: both workflows
+  now install Node + the `claude` CLI and authenticate it via
+  `ANTHROPIC_API_KEY` (Anthropic Console, pay-per-token) instead of the
+  interactive Pro/Max login `llm_fallback.py` was originally written for.
+  `llm_fallback.py` itself needed zero code changes — it just shells out to
+  `claude`, and the CLI's own `ANTHROPIC_API_KEY` env-var auth mode is what
+  makes this work headlessly. This costs real money per fallback call, unlike
+  local runs (see the local launcher scripts) — see "Ideas for future
+  versions" for the self-hosted-runner alternative that would make CI free
+  too, deliberately not built yet since it trades a small ongoing cost for a
+  machine that must be on and reachable on a schedule.
+- **Claude fallback ported to tenders for parity with grants.** Originally
+  only grants had `llm_fallback.py` (drop-the-item was tenders' only
+  behavior on Gemini exhaustion). Ported the exact same helpers, the same
+  four fallback points in `main.py`'s extraction retry loop, and the same
+  `_score_with_claude`/`_ClaudeResponse` pattern in `llm_filtration.py`.
+- **Already-closed tenders/grants are dropped before Layer 2/3, not after.**
+  Both `build_tender_object`/`build_grant_object` already computed an
+  Open/Closed/Undetermined status at scrape time (closing date vs. today) --
+  filtering `all_tenders`/`all_grants` on that right after Redis collection
+  means no embedding or Gemini/Claude call is ever spent scoring something
+  nobody can act on. "Undetermined" (missing/unparseable date) is kept, not
+  dropped, since it can't be confirmed closed. This only affects what a given
+  scrape processes — an item that was open when scraped still ages into
+  "closed" on the dashboard later, since status there is derived from the
+  stored closing_date at view time, not re-checked against this filter.
 - **Two separate weekly workflow files, not one shared cron.** Wanted
   tenders on Saturday and grants on Sunday; a single `on.schedule` block
   fires for every job in the workflow, so per-job `if:` conditions on
   `github.event.schedule` would work but are more fragile than just having
-  two independent, single-purpose workflow files.
+  two independent, single-purpose workflow files. `notify-weekly.yml` follows
+  the same one-workflow-one-purpose pattern.
 
 ---
 
@@ -248,15 +334,85 @@ above for why that's safe for how this app connects.
   `dirname(abspath(__file__))` in all three files, matching the tenders
   package's already-correct pattern. If either package is ever moved or
   restructured again, re-check this.
+- **`psycopg2-binary` segfaulted the Render worker on almost every request
+  that touched Postgres.** Symptom: `/api/grants/sensio-stream` (and
+  intermittently other routes) came back as an empty 502 with no error body
+  — nothing in Flask's own try/except caught it, because the actual failure
+  was `[ERROR] Worker (pid:NN) was sent code 139!` in gunicorn's log, i.e. a
+  real `SIGSEGV`, which a Python `except Exception` cannot catch at all. It
+  happened on nearly every request cycle (tenders' endpoint often "worked"
+  only because its response got sent before the crash landed), constantly
+  respawning the single gunicorn worker. Root cause: `psycopg2-binary`
+  bundles its own OpenSSL/libpq, which can conflict with a host's system
+  libraries — the psycopg2 project's own docs recommend it for local dev
+  only, not production. Fix: switched `requirements.txt` to source-built
+  `psycopg2==2.9.10` (links against the system libpq instead). Verified
+  buildable and working locally (needs `libpq`/`openssl` dev headers on
+  PATH — trivial on Linux/Render, needed explicit `LDFLAGS`/`CPPFLAGS` on
+  this Mac) before pushing. If a future dependency bump ever reintroduces
+  `-binary`, expect this exact symptom again.
 - **`DATABASE_URL` must be set** for the dashboard to show anything —
   Render env var in prod, local `.env` for dev, GitHub Actions repo secret
   for the scrapers. Needs the **session pooler** connection string in every
   one of those three places, not the direct one.
+- **A Supabase password containing a literal `@` broke connection parsing**
+  (`postgresql://user:pass@word@host` — the parser reads part of the
+  password as the hostname). Symptom: `could not translate host name` errors
+  that made no sense until the password was inspected directly. Percent-
+  encoding the `@` as `%40` is the general fix, but the password was reset
+  entirely instead (Supabase dashboard -> Project Settings -> Database ->
+  Reset database password, picking one with no `@`/`:`/`/`/`?`/`#` at all) —
+  removes the whole class of bug rather than working around one instance,
+  and doubled as rotating a credential that had been visible in chat/edit
+  history. Whenever this is reset again, it must be updated in all three
+  `DATABASE_URL` locations (`.env`, GitHub secret, Render env var) — a
+  mismatch between what's stored and what Supabase actually has produces a
+  `password authentication failed` error, easy to mistake for the `@`-escaping
+  bug again.
 - **A real Supabase password briefly landed in `.env.example` instead of
   `.env` during setup** (committed-template file vs. git-ignored local file —
   easy mix-up). Caught and fixed before it was ever pushed, but worth a
   reminder: `.env.example` is a template with a placeholder, `.env` (never
   committed) holds the real value.
+- **`gemini-3.6-flash`'s `generationConfig.thinkingConfig` (used to force
+  `thinkingBudget=0` on `gemini-2.5-flash`) is rejected outright** —
+  `400 INVALID_ARGUMENT`, confirmed by direct testing against the real API.
+  That model always thinks; the fix was dropping the `thinkingConfig` block
+  entirely from the raw REST extraction payload in both `main.py` files
+  (keeping `temperature`/`maxOutputTokens`), confirmed working the same way.
+  Don't add `thinkingConfig` back for this model.
+- **GitHub Actions runners can hang forever on `apt-get install` with no
+  error** — Ubuntu 24.04 (`ubuntu-latest`) ships `needrestart`, which can
+  interactively prompt ("Which services should be restarted?") during
+  `playwright install --with-deps` with no terminal attached, silently
+  hanging instead of failing. Fixed with `DEBIAN_FRONTEND=noninteractive` +
+  `NEEDRESTART_MODE=a` on that step, plus a `timeout-minutes: 45` job-level
+  safety net in both scrape workflows so any future hang fails loudly in
+  under an hour instead of running toward GitHub's 6-hour default. That
+  timeout has since fired for a legitimate reason too (see next item) — a
+  cancelled run isn't automatically a bug, check what it was actually doing
+  first.
+- **A real Gemini quota exhaustion looks identical to a hang from the
+  outside.** A `timeout-minutes`-killed run showed all 5 Gemini keys
+  429-ing on every remaining item, cycling through key rotation + cooldown
+  waits repeatedly before injecting a fallback baseline score each time —
+  consistent with a genuine daily quota limit, not a transient rate limit
+  (waiting longer wouldn't have helped; the retry logic already tried that).
+  Worth checking the actual log for this pattern before assuming a
+  timed-out run is a code bug.
+- **A code-review pass on both scrapers found several real, silent
+  data-corruption bugs**, since fixed: budget values inflated ~100x by a
+  naive `[^\d]`-strip that also ate the decimal point (`_budget_to_int` in
+  both `datasetManager.py` files); every grant's primary key stamped with
+  the tenders prefix `"TND-"` instead of `"GRN-"` (copy-paste leftover);
+  a bare `"K"`-in-string check that could 1000x-inflate a budget on any
+  currency code containing K (DKK, KRW, PKR, HKD) — now requires a digit
+  immediately before the K, mirroring the existing M/B checks; and almost
+  every grant getting `Sector: "Unknown"` because `listMode` adapters call
+  the scorer with an empty search keyword, which sector resolution keyed off
+  — fixed by preferring the adapter's configured `category` when the keyword
+  is empty. None of these were scraping-logic bugs; all were in the
+  post-processing/data-shaping code around it.
 - **A stray typo (`country TEXT,let`) briefly broke `database/schema.sql`**
   after the RLS statements were added and the file was hand-edited in an
   IDE — caught before commit. `schema.sql` should always be valid,

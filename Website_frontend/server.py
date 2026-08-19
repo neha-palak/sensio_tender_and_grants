@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-import pandas as pd
 import os
 import smtplib
 import datetime
@@ -69,12 +68,20 @@ def send_gmail_notification(subject, html_content):
 
 
 def calculate_days_remaining(closing_date_str):
-    try:
-        anchor_date = pd.to_datetime(datetime.datetime.now().date())
-        closing_date = pd.to_datetime(str(closing_date_str).split(' ')[0])
-        return (closing_date - anchor_date).days
-    except Exception:
-        return 999
+    # Pure Python, no pandas: datasetManager.py already normalises closing
+    # dates to YYYY-MM-DD before they ever reach Postgres, so that's the
+    # primary format -- the rest are defensive fallbacks for anything that
+    # slipped through unparsed. (pd.to_datetime used to be used here; ruled
+    # out as a candidate after a segfault in this request path on Render
+    # didn't reproduce locally and wasn't fixed by unrelated changes.)
+    date_part = str(closing_date_str).split(' ')[0].strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d %B %Y", "%d %b %Y"):
+        try:
+            closing_date = datetime.datetime.strptime(date_part, fmt).date()
+            return (closing_date - datetime.datetime.now().date()).days
+        except ValueError:
+            continue
+    return 999
 
 
 class Domain:
