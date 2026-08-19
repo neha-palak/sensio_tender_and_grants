@@ -1208,6 +1208,19 @@ for key in r.scan_iter("tender:*"):
 
 print(f"Tenders collected: {len(all_tenders)}")
 
+# Drop already-closed tenders before the expensive Layer 2/3 passes -- nobody
+# can act on a closed tender, so there's no point spending embedding/Gemini
+# calls scoring one. "Undetermined" (unparseable/missing closing date) is
+# kept rather than dropped, since we can't actually confirm it's closed.
+# A tender scraped while still open keeps showing on the dashboard after it
+# closes too -- the dashboard derives status from the stored closing date at
+# view time, this filter only affects what gets processed on THIS run.
+before_filter = len(all_tenders)
+all_tenders = [t for t in all_tenders if t.get("Tender Status") != "Closed"]
+dropped = before_filter - len(all_tenders)
+if dropped:
+    print(f"Dropped {dropped} already-closed tender(s) before Layer 2/3.")
+
 if not all_tenders:
     print("No tenders collected — skipping all downstream steps.")
 else:

@@ -1490,6 +1490,19 @@ for key in r.scan_iter("grant:*"):
 
 print(f"Grants collected: {len(all_grants)}")
 
+# Drop already-closed grants before the expensive Layer 2/3 passes -- nobody
+# can act on a closed call, so there's no point spending embedding/Gemini
+# calls scoring one. "Undetermined" (unparseable/missing closing date) is
+# kept rather than dropped, since we can't actually confirm it's closed.
+# A grant scraped while still open keeps showing on the dashboard after it
+# closes too -- the dashboard derives status from the stored closing date at
+# view time, this filter only affects what gets processed on THIS run.
+before_filter = len(all_grants)
+all_grants = [g for g in all_grants if g.get("Grant Status") != "Closed"]
+dropped = before_filter - len(all_grants)
+if dropped:
+    print(f"Dropped {dropped} already-closed grant(s) before Layer 2/3.")
+
 if not all_grants:
     print("No grants collected — skipping all downstream steps.")
 else:
