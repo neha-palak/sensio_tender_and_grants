@@ -9,6 +9,10 @@ on:
 jobs:
   scrape-tenders:
     runs-on: ubuntu-latest
+    # The scraper itself caps a run at 30 min (OVERALL_TIMEOUT in main.py); this
+    # leaves headroom for setup/install so a hang fails loudly instead of
+    # silently burning CI minutes toward GitHub's 6-hour default job timeout.
+    timeout-minutes: 45
     services:
       redis:
         image: redis:7
@@ -28,6 +32,13 @@ jobs:
 
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
+        env:
+          # Ubuntu 24.04 runners ship needrestart, which can interactively
+          # prompt ("Which services should be restarted?") during apt-get
+          # install with no terminal attached -- silently hanging the job
+          # instead of erroring. Force it non-interactive.
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
 
       - name: Run tender scraper
         run: python -m Scraper_backend_tenders.main
