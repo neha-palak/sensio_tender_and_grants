@@ -11,6 +11,11 @@ playwright-stealth>=2.0.0
 
 redis>=6.4.0
 
+# semantic.py (both scraper packages) embeds locally via sentence-transformers
+# (all-MiniLM-L6-v2) -- was never in either v1 repo's requirements.txt either;
+# only surfaced here because CI does a genuinely clean install.
+sentence-transformers>=3.0.0
+
 google-genai>=1.47.0
 google-auth>=2.50.0
 
