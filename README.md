@@ -8,11 +8,20 @@ Data lives in Supabase Postgres (`database/schema.sql`: `tenders`, `grants`,
 folder — see `database/db.py` for all reads/writes. Deployed on Render
 (`Procfile`); same stack as `../Production_Log`.
 
-**Scrapers**: not migrated yet. The Excel-writing scrapers still live in
-`Project_Tender_Tool/Scraper_backend` / `Project_CFP_Tool/Scraper_backend` and
-this app no longer reads their output — until they're moved to upsert into
-`tenders`/`grants` directly (planned: a scheduled GitHub Action), the
-dashboard will show no data.
+**Scrapers**: `Scraper_backend_tenders/` and `Scraper_backend_grants/` (ported
+from `Project_Tender_Tool`/`Project_CFP_Tool`, scraping/LLM-filtration logic
+untouched). Each still writes its Excel workbook as before, and — when
+`DATABASE_URL` is set — also upserts every row into `tenders`/`grants`
+(`datasetManager.py`'s `upsert_rows_to_postgres`). Runs on a schedule via
+`.github/workflows/scrape.yml` (weekly, Monday 03:00 UTC, plus manual
+`workflow_dispatch`). Requires two repo secrets before it does anything real:
+`DATABASE_URL` (session pooler string) and `GEMINI_API_KEYS`. **The weekly
+cron trigger is committed and live as soon as this is pushed** — disable it
+in the workflow file first if you're not ready for it to run automatically.
+
+Run a scraper locally: `python -m Scraper_backend_tenders.main` (or
+`Scraper_backend_grants.main`) from the repo root, with `redis-server` running
+locally and `GEMINI_API_KEYS`/`DATABASE_URL` set in `.env`.
 
 ## Setup
 
@@ -42,6 +51,7 @@ Render, `Procfile` binds to Render's own `$PORT`.
 
 ```bash
 python3 Website_frontend/test_server.py
+python3 database/test_upsert_mapping.py
 ```
 
 ## What was deferred

@@ -1,0 +1,48 @@
+name: Scrape grants
+
+# Sunday 16:00 IST (UTC+5:30, no DST) == Sunday 10:30 UTC.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 10 * * 0" # Sunday 10:30 UTC = Sunday 4pm IST
+
+jobs:
+  scrape-grants:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run grants scraper
+        run: python -m Scraper_backend_grants.main
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          # llm_fallback.py shells out to a local `claude` CLI login when Gemini
+          # keys are exhausted -- no such login exists in CI, so disable it
+          # rather than let it fail-detect at runtime.
+          USE_CLAUDE_FALLBACK: "0"
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: all_grants_pipeline
+          path: Scraper_backend_grants/all_grants_pipeline.xlsx
+          if-no-files-found: ignore

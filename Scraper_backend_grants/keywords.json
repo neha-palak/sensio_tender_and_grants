@@ -1,0 +1,20 @@
+{
+    "health": [
+        "wearable", "wearable device", "wearable devices", "wearable technology",
+        "smart ring", "chest patch", "smart band", "wrist band", "smart glasses",
+        "sensor", "biosensor", "vitals tracker", "vital signs monitoring",
+        "sleep monitoring", "heart rate", "ECG", "SpO2", "custom wearables",
+        "remote monitoring", "patient monitoring", "continuous monitoring",
+        "digital biomarker", "health monitoring", "health activity"
+    ],
+    "defence": [
+        "military wearable", "tactical wearable", "soldier monitoring system",
+        "battlefield monitoring", "warfighter monitoring", "soldier health monitoring",
+        "military biosensor", "combat health monitoring"
+    ],
+    "corporate": [
+        "worker wearable", "workplace health monitoring", "occupational health monitoring",
+        "employee wellness monitoring", "worker safety monitoring", "industrial wearable",
+        "workforce monitoring", "worker health tracker"
+    ]
+}
