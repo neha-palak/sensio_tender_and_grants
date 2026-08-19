@@ -379,10 +379,13 @@ def extract_fields_with_gemini(page_html: str) -> dict:
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
+        # thinkingConfig (used to force thinkingBudget=0 on gemini-2.5-flash)
+        # is rejected outright by gemini-3.6-flash -- 400 INVALID_ARGUMENT,
+        # confirmed by direct testing. That model always thinks; dropping the
+        # block entirely (verified working) is the only way to call it here.
         "generationConfig": {
             "maxOutputTokens": 2048,
             "temperature": 0,
-            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 

@@ -541,10 +541,13 @@ def extract_fields_with_gemini(page_html: str) -> dict:
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
+        # thinkingConfig (used to force thinkingBudget=0 on gemini-2.5-flash)
+        # is rejected outright by gemini-3.6-flash -- 400 INVALID_ARGUMENT,
+        # confirmed by direct testing. That model always thinks; dropping the
+        # block entirely (verified working) is the only way to call it here.
         "generationConfig": {
             "maxOutputTokens": 2048,
             "temperature": 0,
-            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -705,10 +708,15 @@ def compute_timeline(opening_date_str: Optional[str], closing_date_str: Optional
 #         "Current Applicants": None,
 #     }
 
-def build_grant_object(extracted: dict, grant_url: str, search_keyword: str, country: str) -> dict:
+def build_grant_object(extracted: dict, grant_url: str, search_keyword: str, country: str, category: str = None) -> dict:
     currency, budget_min, budget_max, inr_min, inr_max = resolve_currency_and_budget(extracted)
 
-    sector = resolve_sector(search_keyword)
+    # listMode adapters have no search keyword to resolve a sector from
+    # (search_keyword is "") -- runMainLogic already knows the right sector
+    # (the adapter's configured Sector, or the keyword-search sector for the
+    # non-listMode path) and passes it in as `category`. Prefer that; fall
+    # back to keyword-derived resolution only when it's not available.
+    sector = category.capitalize() if category and category != "Unknown" else resolve_sector(search_keyword)
 
     title = extracted.get("Grant Title") or ""
     description = extracted.get("Grant Description") or ""
@@ -1053,7 +1061,7 @@ def click_and_wait_for_refresh(page, submit_button, adapter, timeout=60000):
 # SECTION 4 — MAIN SCRAPE LOOP
 # ===========================================================================
 
-def process_grant_page(page, adapter, search_keyword, country):
+def process_grant_page(page, adapter, search_keyword, country, category=None):
     grant_url = page.url
     try:
         page_content = page.evaluate("() => document.body.innerText")
@@ -1075,11 +1083,12 @@ def process_grant_page(page, adapter, search_keyword, country):
         grant_url=grant_url,
         search_keyword=search_keyword,
         country=country,
+        category=category,
     )
     store_grant(grant_obj)
 
 
-def process_grant_row(card, page, adapter, search_keyword, country):
+def process_grant_row(card, page, adapter, search_keyword, country, category=None):
     """
     Row-mode extraction: read the listing row's own text (title + deadline etc.)
     and send it to Gemini — no navigation. Used when the row's link points to a
@@ -1111,11 +1120,12 @@ def process_grant_row(card, page, adapter, search_keyword, country):
         grant_url=grant_url,
         search_keyword=search_keyword,
         country=country,
+        category=category,
     )
     store_grant(grant_obj)
 
 
-def process_grant_card_in_place(card, page, adapter, search_keyword, country):
+def process_grant_card_in_place(card, page, adapter, search_keyword, country, category=None):
     """
     For sites like UAE where grants expand inline (no page navigation).
     Clicks the card header to expand it, reads innerText, sends to Gemini,
@@ -1162,6 +1172,7 @@ def process_grant_card_in_place(card, page, adapter, search_keyword, country):
         grant_url=grant_url,
         search_keyword=search_keyword,
         country=country,
+        category=category,
     )
     store_grant(grant_obj)
 
@@ -1200,6 +1211,7 @@ def runMainLogic(page, parent, keyword, category, adapter, timer=1):
                     card, page, adapter,
                     search_keyword=keyword,
                     country=adapter["Country"],
+                    category=category,
                 )
             except Exception as e:
                 print(f"Error processing row card: {e}")
@@ -1214,6 +1226,7 @@ def runMainLogic(page, parent, keyword, category, adapter, timer=1):
                     card, page, adapter,
                     search_keyword=keyword,
                     country=adapter["Country"],
+                    category=category,
                 )
             except Exception as e:
                 print(f"Error processing inline card: {e}")
@@ -1236,7 +1249,7 @@ def runMainLogic(page, parent, keyword, category, adapter, timer=1):
             continue
 
         try:
-            process_grant_page(page, adapter, search_keyword=keyword, country=adapter["Country"])
+            process_grant_page(page, adapter, search_keyword=keyword, country=adapter["Country"], category=category)
         except Exception as e:
             print(f"Error processing grant page: {e}")
 
@@ -1334,7 +1347,10 @@ def scrape_site(adapter, stop_event):
             if mode == "page":
                 # The landing page IS a single call for proposals.
                 print(f"[{adapter['Country']}] listMode(page) url={page.url}")
-                process_grant_page(page, adapter, search_keyword="", country=adapter["Country"])
+                process_grant_page(
+                    page, adapter, search_keyword="", country=adapter["Country"],
+                    category=adapter.get("Sector", "Unknown"),
+                )
                 browser.close()
                 return
 

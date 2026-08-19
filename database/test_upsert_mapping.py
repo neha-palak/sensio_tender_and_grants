@@ -65,14 +65,36 @@ assert domain0 == "tenders"
 assert row0["primary_key"] == "TND-2026-0001"
 assert row0["title"] == "Test Tender One"
 assert row0["url"] == "https://example.com/1"
-# [^\d] strips the decimal point too (matches the pre-existing budget-parsing
-# convention this project already used, e.g. server.py's old Excel reader) --
-# "1,234,567.89" -> "123456789", not 1234567.
-assert row0["inr_budget_maximum"] == 123456789, row0["inr_budget_maximum"]
+# Keeps the decimal point (unlike a naive [^\d] strip, which would turn
+# "1,234,567.89" into 123456789 -- a ~100x inflation bug fixed in
+# datasetManager.py's _budget_to_int).
+assert row0["inr_budget_maximum"] == 1234567, row0["inr_budget_maximum"]
 assert isinstance(row0["inr_budget_maximum"], int)
 
 domain1, row1 = calls[1]
 assert row1["primary_key"] == "TND-2026-0002"
 assert row1["inr_budget_maximum"] == 0
+
+# --- grants side: same budget-parsing fix, applied independently in its own
+# datasetManager.py (the two packages are separate forks, not shared code) ---
+from Scraper_backend_grants.datasetManager import (
+    _budget_to_int as grants_budget_to_int,
+    get_verbal_scale_multiplier as grants_scale,
+)
+assert grants_budget_to_int("1,234,567.89 INR") == 1234567
+assert grants_budget_to_int("0") == 0
+assert grants_budget_to_int("garbage") == 0
+
+# --- K-thousands multiplier: must require a digit before K (mirroring the
+# existing M/B checks), not just "K" anywhere -- a bare substring match also
+# fired on currency codes containing K (DKK, KRW, PKR, HKD). ---
+assert grants_scale("500K") == 1_000.0
+assert grants_scale("88.5K") == 1_000.0
+assert grants_scale("DKK 500") == 1.0, "DKK falsely triggered the K-thousands multiplier"
+assert grants_scale("KRW 500") == 1.0, "KRW falsely triggered the K-thousands multiplier"
+
+from Scraper_backend_tenders.datasetManager import get_verbal_scale_multiplier as tenders_scale
+assert tenders_scale("500K") == 1_000.0
+assert tenders_scale("HKD 500") == 1.0, "HKD falsely triggered the K-thousands multiplier"
 
 print("[✓] test_upsert_mapping.py: all checks passed")

@@ -12,8 +12,12 @@ from openpyxl.styles import PatternFill
 
 
 def _budget_to_int(value):
+    # Budgets are formatted as "1,234,567.89 INR" (see parse_and_convert_to_inr
+    # below) -- stripping every non-digit would also strip the decimal point,
+    # turning 1234567.89 into 123456789 (~100x inflated). Keep the dot.
     try:
-        return int(re.sub(r'[^\d]', '', str(value or 0)))
+        cleaned = re.sub(r'[^\d.]', '', str(value or 0))
+        return int(float(cleaned)) if cleaned else 0
     except Exception:
         return 0
 
@@ -170,7 +174,10 @@ def get_verbal_scale_multiplier(cleaned_str):
         return 100_000.0
     if "CRORE" in cleaned_str or "CR" in cleaned_str:
         return 10_000_000.0
-    if "K" in cleaned_str:
+    # Require a digit right before K (like the M check above) -- a bare "K"
+    # substring match also fired on currency codes containing K (DKK, KRW,
+    # PKR, HKD), inflating those budgets 1000x.
+    if re.search(r'\d\s*K\b', cleaned_str):
         return 1_000.0
     return 1.0
 
@@ -246,7 +253,7 @@ def json_to_excel(json_filename="all_grants.json", excel_filename="all_grants_pi
         current_year = datetime.now().year
 
         for index, grant in enumerate(data, start=1):
-            primary_key = f"TND-{current_year}-{index:04d}"
+            primary_key = f"GRN-{current_year}-{index:04d}"
 
             min_val_str = grant.get("Budget in Local Currency Minimum", "")
             max_val_str = grant.get("Budget in Local Currency Maximum", "")
