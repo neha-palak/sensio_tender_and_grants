@@ -3,9 +3,16 @@
 Combines the Tender Tool and Grants (CFP) Tool into one Flask app with one
 sidebar: Dashboard, Tenders, Grants, Saved, Tender Analytics, Grant Analytics.
 
-Both scrapers are unchanged and keep running independently (see
-`Project_Tender_Tool/Scraper_backend` and `Project_CFP_Tool/Scraper_backend`)
-— this app only reads the two Excel files they already produce.
+Data lives in Supabase Postgres (`database/schema.sql`: `tenders`, `grants`,
+`saved_items`) instead of the two tools' old Excel files on a shared Drive
+folder — see `database/db.py` for all reads/writes. Deployed on Render
+(`Procfile`); same stack as `../Production_Log`.
+
+**Scrapers**: not migrated yet. The Excel-writing scrapers still live in
+`Project_Tender_Tool/Scraper_backend` / `Project_CFP_Tool/Scraper_backend` and
+this app no longer reads their output — until they're moved to upsert into
+`tenders`/`grants` directly (planned: a scheduled GitHub Action), the
+dashboard will show no data.
 
 ## Setup
 
@@ -15,14 +22,10 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and point the two vars at the SAME shared Drive
-folders the existing Tender Tool and Grants Tool already use — no data
-migration needed:
-
-```
-TENDER_DATA_DIR=/path/to/Sensio Tender Tool
-GRANT_DATA_DIR=/path/to/Sensio Grants Tool
-```
+Create a Supabase project, run `database/schema.sql` against it (Supabase SQL
+editor, or `psql $DATABASE_URL -f database/schema.sql`), then copy
+`.env.example` to `.env` and set `DATABASE_URL` to its **session pooler**
+connection string (see `.env.example` for why not the direct one).
 
 ## Run
 
@@ -32,7 +35,8 @@ python3 desktop_app.py          # opens the dashboard in your browser
 cd Website_frontend && python3 -m flask --app server run --port 5001
 ```
 
-Default port is 5001 (override with `SENSIO_DASHBOARD_PORT`).
+Default port is 5001 locally (override with `SENSIO_DASHBOARD_PORT`). On
+Render, `Procfile` binds to Render's own `$PORT`.
 
 ## Self-check
 
