@@ -16,6 +16,12 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ClientError
 
+from Scraper_backend_tenders.llm_fallback import (
+    claude_available,
+    parse_llm_json,
+    run_claude,
+)
+
 # =====================================================================
 # PART 0: GEMINI API KEY CONFIG + ROTATION (same pattern as main.py)
 # =====================================================================
@@ -103,17 +109,59 @@ def _is_rate_limit_error(error) -> bool:
     return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower()
 
 
+class _ClaudeResponse:
+    """
+    Minimal stand-in for a Gemini response object. The caller only ever reads
+    `.text` and json.loads() it, so exposing that one attribute is enough to let
+    the Claude fallback drop in without touching the scoring loop.
+    """
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+def _score_with_claude(contents, config):
+    """
+    Scoring fallback via Claude when every Gemini key is rate-limited.
+
+    Gemini enforces the shape with response_schema; Claude has no equivalent
+    here, so the schema is restated in the prompt and the reply is parsed
+    leniently. We hand back a normalised JSON string so the caller's
+    json.loads(response.text) works unchanged either way.
+    """
+    system_instruction = getattr(config, "system_instruction", "") or ""
+    prompt = (
+        f"{system_instruction}\n\n{contents}\n\n"
+        'Return ONLY a valid JSON object of exactly this shape — no markdown '
+        'fences, no commentary:\n'
+        '{"LLM_RelevancyScore": <float between 0.0 and 10.0>}'
+    )
+    raw = run_claude(prompt)
+    if not raw:
+        raise RuntimeError("Claude scoring fallback returned nothing.")
+    data = parse_llm_json(raw, "Claude")
+    if "LLM_RelevancyScore" not in data:
+        raise RuntimeError(f"Claude scoring fallback returned no score: {str(data)[:200]}")
+    return _ClaudeResponse(json.dumps(data))
+
+
 def generate_with_rotation(model, contents, config):
     """
     Calls client.models.generate_content, rotating across configured Gemini
     keys on a 429 instead of failing the tender outright. Mirrors the
     extract_fields_with_gemini retry behavior in main.py.
+
+    Once every key is rate-limited, falls back to Claude (see llm_fallback.py)
+    rather than failing the tender — set USE_CLAUDE_FALLBACK=0 to opt out.
     """
     attempts = max(gemini_rotator.key_count(), 1) + 1  # +1 for the cooldown-wait retry
 
     for _ in range(attempts):
         key_index, api_key, client = gemini_rotator.current()
         if client is None:
+            if claude_available():
+                print("  [Gemini] No API keys configured — falling back to Claude.")
+                return _score_with_claude(contents, config)
             raise RuntimeError("No Gemini API keys configured (set GEMINI_API_KEYS in .env).")
 
         try:
@@ -125,6 +173,12 @@ def generate_with_rotation(model, contents, config):
                 if still_have_keys:
                     print("  [Gemini] Switching to next key and retrying same request...")
                     continue
+                # Every key is 429ing. Prefer Claude over sleeping: a daily-quota
+                # exhaustion never clears inside the RPM cooldown window, so
+                # waiting would stall the whole scoring pass for nothing.
+                if claude_available():
+                    print("  [Gemini] All keys rate-limited — falling back to Claude.")
+                    return _score_with_claude(contents, config)
                 wait_s = min(gemini_rotator.seconds_until_next_available(), 65)
                 if wait_s > 0:
                     print(f"  [Gemini] All keys on cooldown — waiting {wait_s:.0f}s for RPM window to reset...")
@@ -133,6 +187,9 @@ def generate_with_rotation(model, contents, config):
                 raise
             raise  # not a rate-limit issue — let the caller's except block handle it
 
+    if claude_available():
+        print("  [Gemini] Exhausted all keys and retries — falling back to Claude.")
+        return _score_with_claude(contents, config)
     raise RuntimeError("Gemini scoring failed after exhausting all keys and retries.")
 
 

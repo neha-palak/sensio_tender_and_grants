@@ -20,6 +20,11 @@ import redis
 from Scraper_backend_tenders.datasetManager import json_to_excel
 from Scraper_backend_tenders.semantic import semantic_filter
 from Scraper_backend_tenders.llm_filtration import evaluate_and_score_tenders
+from Scraper_backend_tenders.llm_fallback import (
+    claude_available,
+    extract_with_claude,
+    parse_llm_json,
+)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -394,8 +399,8 @@ def extract_fields_with_gemini(page_html: str) -> dict:
     for _ in range(attempts):
         key_index, api_key = gemini_rotator.current()
         if api_key is None:
-            print("[Gemini] No API keys configured, skipping.")
-            return {}
+            print("[Gemini] No API keys configured — falling back to Claude.")
+            return extract_with_claude(prompt)
 
         try:
             resp = requests.post(
@@ -412,6 +417,12 @@ def extract_fields_with_gemini(page_html: str) -> dict:
                     print(f"[Gemini] Switching to next key and retrying same request...")
                     continue  # retry the same page with the next key
                 else:
+                    # Every key is 429ing. If Claude is available, prefer it over
+                    # sleeping — a daily-quota exhaustion never clears within the
+                    # cooldown window, so waiting would just stall the whole run.
+                    if claude_available():
+                        print("[Gemini] All keys rate-limited — falling back to Claude.")
+                        return extract_with_claude(prompt)
                     wait_s = min(gemini_rotator.seconds_until_next_available(), 65)
                     if wait_s > 0:
                         print(f"[Gemini] All keys on cooldown — waiting {wait_s:.0f}s "
@@ -432,26 +443,14 @@ def extract_fields_with_gemini(page_html: str) -> dict:
 
             print(f"[Gemini RAW RESPONSE]:\n{repr(raw_text[:500])}")
 
-            # Remove thinking tags if present
-            raw_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
-
-            # Extract the first { ... } JSON block
-            match = re.search(r"\{[\s\S]*\}", raw_text)
-            if not match:
-                print(f"[Gemini] No JSON object found in response: {raw_text[:300]}")
-                return {}
-
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError as e:
-                print(f"[Gemini] JSON parse failed: {e}\nRaw: {match.group()[:300]}")
-                return {}
+            return parse_llm_json(raw_text, "Gemini")
 
         except Exception as exc:
             print(f"[Gemini extraction error] {exc}")
-            return {}
+            return extract_with_claude(prompt)
 
-    return {}
+    # Every attempt was consumed by rotation/cooldown without a result.
+    return extract_with_claude(prompt)
 
 
 # SECTION 2 — POST-PROCESSING
