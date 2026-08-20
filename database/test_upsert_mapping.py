@@ -1,8 +1,8 @@
-"""Self-check for Scraper_backend_*/datasetManager.py's upsert_rows_to_postgres().
+"""Self-check for Scraper_backend_*/datasetManager.py's write_rows_to_postgres().
 Run: python3 database/test_upsert_mapping.py
 
-Monkeypatches database.db.upsert_item so this never touches a real database --
-it's checking the row-mapping/gating logic, not Postgres itself.
+Monkeypatches database.db.replace_items so this never touches a real database
+-- it's checking the row-mapping/gating logic, not Postgres itself.
 """
 import os
 import sys
@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 FIXTURE = [
     {
-        "Primary Key": "TND-2026-0001",
+        "Primary Key": "TND-200826-01",
         "Tender Title": "Test Tender One",
         "Sector": "health",
         "Country": "India",
@@ -24,7 +24,7 @@ FIXTURE = [
         "Tender URL": "https://example.com/1",
     },
     {
-        "Primary Key": "TND-2026-0002",
+        "Primary Key": "TND-200826-02",
         "Tender Title": "Test Tender Two",
         "Sector": "defence",
         "Country": "USA",
@@ -45,24 +45,26 @@ FIXTURE = [
 from database import db
 
 calls = []
-db.upsert_item = lambda domain, row: calls.append((domain, row))
+db.replace_items = lambda domain, rows: calls.append((domain, rows))
 
-from Scraper_backend_tenders.datasetManager import upsert_rows_to_postgres
+from Scraper_backend_tenders.datasetManager import write_rows_to_postgres
 
-# --- gate check: DATABASE_URL unset -> upsert_item never called ---
+# --- gate check: DATABASE_URL unset -> replace_items never called ---
 os.environ.pop("DATABASE_URL", None)
-upsert_rows_to_postgres(FIXTURE, "tenders", "Tender Title", "Tender URL")
+write_rows_to_postgres(FIXTURE, "tenders", "Tender Title", "Tender URL")
 assert calls == [], f"expected no calls with DATABASE_URL unset, got {calls}"
 
-# --- DATABASE_URL set -> upsert_item called once per row, correctly mapped ---
+# --- DATABASE_URL set -> replace_items called once, with all rows mapped ---
 os.environ["DATABASE_URL"] = "postgresql://fake:fake@localhost:5432/fake"
-upsert_rows_to_postgres(FIXTURE, "tenders", "Tender Title", "Tender URL")
+write_rows_to_postgres(FIXTURE, "tenders", "Tender Title", "Tender URL")
 
-assert len(calls) == 2, f"expected 2 calls, got {len(calls)}"
-
-domain0, row0 = calls[0]
+assert len(calls) == 1, f"expected 1 batch call, got {len(calls)}"
+domain0, rows0 = calls[0]
 assert domain0 == "tenders"
-assert row0["primary_key"] == "TND-2026-0001"
+assert len(rows0) == 2, f"expected 2 rows in the batch, got {len(rows0)}"
+
+row0 = rows0[0]
+assert row0["primary_key"] == "TND-200826-01"
 assert row0["title"] == "Test Tender One"
 assert row0["url"] == "https://example.com/1"
 # Keeps the decimal point (unlike a naive [^\d] strip, which would turn
@@ -71,8 +73,8 @@ assert row0["url"] == "https://example.com/1"
 assert row0["inr_budget_maximum"] == 1234567, row0["inr_budget_maximum"]
 assert isinstance(row0["inr_budget_maximum"], int)
 
-domain1, row1 = calls[1]
-assert row1["primary_key"] == "TND-2026-0002"
+row1 = rows0[1]
+assert row1["primary_key"] == "TND-200826-02"
 assert row1["inr_budget_maximum"] == 0
 
 # --- grants side: same budget-parsing fix, applied independently in its own

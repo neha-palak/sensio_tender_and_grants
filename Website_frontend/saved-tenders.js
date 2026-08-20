@@ -172,6 +172,7 @@ function tenderSavedCardHtml(item, founder) {
         ${badgeHtml}
         ${sharedHtml}
         <div class="tender-card-dates">
+          <div class="date-row"><span class="date-label">Country:</span><span class="date-val">🌍 ${item.country || '—'}</span></div>
           <div class="date-row"><span class="date-label">Opening Phase:</span><span class="date-val">${item.openingDate}</span></div>
           <div class="date-row"><span class="date-label">Deadline Phase:</span><span class="date-val">${item.closingDate}</span></div>
         </div>

@@ -22,31 +22,37 @@ def _budget_to_int(value):
         return 0
 
 
-def upsert_rows_to_postgres(excel_rows, domain, title_key, url_key):
+def write_rows_to_postgres(excel_rows, domain, title_key, url_key):
+    """Full weekly replace: the tenders/grants table always reflects only
+    this run's batch, never accumulating past weeks (see db.replace_items).
+    Primary keys are date-stamped per run, so there's no meaningful "same
+    row as last week" to upsert against -- saved_items snapshots its own
+    data specifically so a founder's save survives this wipe untouched."""
     if not os.environ.get("DATABASE_URL"):
-        print("[i] DATABASE_URL not set -- skipping Postgres upsert (Excel only).")
+        print("[i] DATABASE_URL not set -- skipping Postgres write (Excel only).")
         return
     from database import db
-    upserted = 0
-    for row in excel_rows:
-        try:
-            db.upsert_item(domain, {
-                "primary_key": row["Primary Key"],
-                "title": row[title_key],
-                "sector": row["Sector"],
-                "country": row["Country"],
-                "opening_date": row["Opening date"],
-                "closing_date": row["Closing date"],
-                "relevancy_score": row["Relevancy Score"],
-                "inr_budget_maximum": _budget_to_int(row["INR Budget Maximum"]),
-                "description": row["Description"],
-                "organisation_name": row["Organisation name"],
-                "url": row[url_key],
-            })
-            upserted += 1
-        except Exception as e:
-            print(f"[X] Postgres upsert failed for {row.get('Primary Key')}: {e}")
-    print(f"[OK] Upserted {upserted}/{len(excel_rows)} {domain} into Postgres.")
+    mapped_rows = [
+        {
+            "primary_key": row["Primary Key"],
+            "title": row[title_key],
+            "sector": row["Sector"],
+            "country": row["Country"],
+            "opening_date": row["Opening date"],
+            "closing_date": row["Closing date"],
+            "relevancy_score": row["Relevancy Score"],
+            "inr_budget_maximum": _budget_to_int(row["INR Budget Maximum"]),
+            "description": row["Description"],
+            "organisation_name": row["Organisation name"],
+            "url": row[url_key],
+        }
+        for row in excel_rows
+    ]
+    try:
+        db.replace_items(domain, mapped_rows)
+        print(f"[OK] Replaced {domain} table with {len(mapped_rows)} row(s) in Postgres.")
+    except Exception as e:
+        print(f"[X] Postgres replace failed for {domain}: {e}")
 
 # =====================================================================
 # PART 2: LIVE NETWORK RATE FETCHER
@@ -250,10 +256,14 @@ def json_to_excel(json_filename="all_grants.json", excel_filename="all_grants_pi
 
         live_exchange_rates = fetch_live_rates_or_die()
         excel_rows = []
-        current_year = datetime.now().year
+        run_date = datetime.now().strftime("%d%m%y")
 
         for index, grant in enumerate(data, start=1):
-            primary_key = f"GRN-{current_year}-{index:04d}"
+            # Date-stamped, not year+sequential: this run's grants are meant
+            # to be genuinely new rows each week (see write_rows_to_postgres,
+            # which replaces the whole grants table every run), not upserted
+            # against a prior run's keys.
+            primary_key = f"GRN-{run_date}-{index:02d}"
 
             min_val_str = grant.get("Budget in Local Currency Minimum", "")
             max_val_str = grant.get("Budget in Local Currency Maximum", "")
@@ -321,7 +331,7 @@ def json_to_excel(json_filename="all_grants.json", excel_filename="all_grants_pi
             }
             excel_rows.append(row)
 
-        upsert_rows_to_postgres(excel_rows, "grants", "Grant Title", "Grant URL")
+        write_rows_to_postgres(excel_rows, "grants", "Grant Title", "Grant URL")
 
         df = pd.DataFrame(excel_rows)
 
