@@ -109,7 +109,7 @@ def list_saved(domain):
             WHERE domain = %(domain)s
             GROUP BY item_id
         )
-        SELECT latest.*, starred.starred_by
+        SELECT latest.*, latest.item_id AS primary_key, starred.starred_by
         FROM latest
         JOIN starred USING (item_id)
         ORDER BY starred.latest_saved_at DESC
