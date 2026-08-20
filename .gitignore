@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+
+# Scraper run output -- regenerated every run (intermediate JSON + the final
+# Excel workbook), not source. Postgres is the durable store; these are local
+# artifacts only (the GitHub Action uploads its own copy as a build artifact
+# instead of committing it).
+Scraper_backend_tenders/all_tenders.json
+Scraper_backend_tenders/all_tenders.backup.json
+Scraper_backend_tenders/all_tenders_pipeline.xlsx
+Scraper_backend_grants/all_grants.json
+Scraper_backend_grants/all_grants_pipeline.xlsx
