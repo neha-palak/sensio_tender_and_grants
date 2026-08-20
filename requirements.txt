@@ -1,15 +1,21 @@
-Flask==3.0.3
-flask-cors==5.0.1
-pandas==2.2.3
-openpyxl==3.1.5
+# >= not == throughout: a hard == pin fails outright (rather than resolving
+# to a close, compatible version) when the exact pinned release has no wheel
+# for someone's local Python version/platform -- pandas and psycopg2 are the
+# two here that actually ship compiled, version-specific wheels, so this is
+# a real risk, not a hypothetical one, on a fresh machine.
+Flask>=3.0.3
+flask-cors>=5.0.1
+pandas>=2.2.3
+openpyxl>=3.1.5
 # psycopg2-binary bundles its own OpenSSL/libpq, which conflicted with the
 # system libraries on Render and segfaulted the gunicorn worker on almost
 # every request ("Worker was sent code 139"). Source-built psycopg2 links
 # against the system libpq instead -- the psycopg2 project itself recommends
-# this for production, binary is meant for local dev only.
-psycopg2==2.9.10
-python-dotenv==1.0.1
-gunicorn==23.0.0
+# this for production, binary is meant for local dev only. Still needs
+# libpq/pg_config on PATH to build at all -- see executables/run_*.command.
+psycopg2>=2.9.10
+python-dotenv>=1.0.1
+gunicorn>=23.0.0
 
 playwright>=1.55.0
 playwright-stealth>=2.0.0

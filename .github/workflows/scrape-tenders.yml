@@ -1,5 +1,22 @@
 name: Scrape tenders
 
+# --- To change the day/time this fires ---
+# cron format is "minute hour * * weekday", always in UTC.
+#   1. Pick your target time in IST, subtract 5:30 to get UTC (IST has no
+#      DST, so this offset never changes): e.g. 4:00 PM IST -> 10:30 AM UTC.
+#      If subtracting 5:30 goes below 0:00, the UTC day rolls back one day
+#      (e.g. 4:00 AM IST -> 10:30 PM UTC the PREVIOUS day).
+#   2. weekday is 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday,
+#      5=Friday, 6=Saturday -- use the UTC day from step 1, not the IST one,
+#      if step 1 rolled the day back.
+#   3. Update both the cron line below AND this comment.
+# Note GitHub's scheduled triggers can run late, sometimes by an hour or
+# more, especially for once-a-week schedules -- budget for that when
+# picking a time (see HANDOFF.md's Landmines section). Also remember: local
+# execution via executables/run_tenders.command is the recommended path (see
+# HANDOFF.md's "Local execution vs. full CI automation") -- this schedule is
+# a fallback safety net, not the primary way this is meant to run.
+#
 # Saturday 16:00 IST (UTC+5:30, no DST) == Saturday 10:30 UTC.
 on:
   workflow_dispatch:
