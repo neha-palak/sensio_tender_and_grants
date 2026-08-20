@@ -9,9 +9,11 @@ For whoever picks this up next. This file is the *why* and the *what's next*.
 One Flask dashboard (Dashboard, Tenders, Grants, Saved, two Analytics pages)
 that merges what used to be two separate desktop apps — the Tender
 Intelligence Tool and the Grant Intelligence Tool — backed by Supabase
-Postgres and deployed on Render, with the same two Playwright + Gemini
-scrapers now running on a weekly GitHub Actions schedule instead of on a
-founder's laptop.
+Postgres and deployed on Render. The two Playwright + Gemini scrapers are
+still scheduled on GitHub Actions (Sat/Sun), but the actual recommended way
+to run them is now the double-click launchers in `executables/`, run
+locally — see "Local execution vs. full CI automation" under Key decisions
+for why that ended up being the better default, not just a fallback.
 
 This is a v2 rewrite of two working v1 systems (`Project_Tender_Tool`,
 `Project_CFP_Tool`, both still intact and untouched as reference/rollback).
@@ -45,33 +47,43 @@ per-founder-file locking dance are gone entirely, not adapted.
   project never uses Supabase client SDKs or those keys, so RLS-enabled +
   no policies = deny by default to an attack surface that would otherwise be
   open by accident.
-- **Scrapers write to Postgres now, not just Excel.** Both
-  `Scraper_backend_tenders/` and `Scraper_backend_grants/` still produce
-  their Excel workbook exactly as before (unchanged formatting/coloring
-  logic) — the workbook is now just a build artifact for optional manual QA,
-  uploaded by the GitHub Action. The write that matters is a new, gated
-  Postgres upsert in each `datasetManager.py` (`upsert_rows_to_postgres`,
-  only runs when `DATABASE_URL` is set).
-- **Scheduled via three GitHub Actions workflows**, not a founder's
-  cron/manual run: `scrape-tenders.yml` Saturdays 10:30 UTC (4pm IST),
-  `scrape-grants.yml` Sundays 10:30 UTC (4pm IST), `notify-weekly.yml`
-  Thursdays 01:30 UTC (7am IST) — a "dashboard is live" email with that
-  week's top tender/grant. All three also support manual `workflow_dispatch`.
-  Repo secrets required: `DATABASE_URL`, `GEMINI_API_KEYS`,
-  `ANTHROPIC_API_KEY` (Claude fallback in CI — see Key decisions),
-  `SENDER_EMAIL`/`SENDER_APP_PASSWORD`/`RECIPIENT_EMAIL`/`DASHBOARD_URL` (the
-  weekly email).
+- **`tenders`/`grants` are fully replaced every scrape run, not
+  accumulated.** Primary keys are date-stamped per run (`TND-DDMMYY-01`,
+  `GRN-DDMMYY-01` — see Database schema below), and `db.replace_items()`
+  wipes + re-inserts the whole table in one transaction each time
+  `datasetManager.py`'s `write_rows_to_postgres()` runs (gated on
+  `DATABASE_URL` being set; a local run without it just writes Excel as
+  before, byte-identical to v1). The Excel workbook is still produced
+  unchanged alongside it, mostly as a manual-QA artifact now.
+- **A save is a full snapshot, not a reference** — `saved_items` carries its
+  own copy of every field (title, sector, dates, budget, etc.), captured at
+  the moment something's starred, specifically so it survives the *next*
+  scrape wiping the main table out from under it. See Database schema and
+  Key decisions.
+- **Scheduled via three GitHub Actions workflows** (still active, but see
+  the "Local execution vs. full CI automation" decision below for why local
+  runs via `executables/` are the actual recommended path now):
+  `scrape-tenders.yml` Saturdays 10:30 UTC (4pm IST), `scrape-grants.yml`
+  Sundays 10:30 UTC (4pm IST), `notify-weekly.yml` Thursdays 01:30 UTC
+  (7am IST) — a "dashboard is live" email with that week's top tender/grant.
+  All three also support manual `workflow_dispatch`. Repo secrets required:
+  `DATABASE_URL`, `GEMINI_API_KEYS`, `ANTHROPIC_API_KEY` (Claude fallback in
+  CI), `SENDER_EMAIL`/`SENDER_APP_PASSWORD`/`RECIPIENT_EMAIL`/`DASHBOARD_URL`
+  (the weekly email).
 - **Both scrapers use `gemini-3.6-flash`** (upgraded from `gemini-2.5-flash`
   after confirming it's real and working against the actual API — see
   Landmines for the `thinkingConfig` incompatibility that came with it).
-- **Local runs get Claude fallback for free; CI runs pay per-token for it.**
-  `run_tenders.command`/`run_grants.command` (Mac) and the matching `.bat`
-  files (Windows) set up every dependency and run a scraper locally, where
-  `llm_fallback.py` reuses your already-logged-in Claude Code Pro/Max
-  session at no extra cost. The GitHub Actions runs authenticate the same
-  `claude` CLI via `ANTHROPIC_API_KEY` instead, since hosted runners have no
-  persistent login to reuse — see "Ideas for future versions" for the
-  self-hosted-runner path that would make CI free too.
+- **Local runs (`executables/run_*.command`/`.bat`) are the recommended way
+  to scrape now — free Claude fallback, no Gemini-quota surprises going
+  unnoticed for an hour.** CI still works and stays scheduled, but see the
+  dedicated "Local execution vs. full CI automation" write-up under Key
+  decisions for the real operational reasons this ended up being the better
+  default, not just a cost-saving fallback.
+- **`GEMINI_API_KEYS` must be in your local `.env` too now**, not just the
+  GitHub secret — the scrapers moved into this repo in Phase 2 but
+  `.env.example` never documented this var until it was noticed missing.
+  Without it, every extraction/scoring call falls straight through to Claude
+  instead of using Gemini as primary.
 - **No login anywhere** — same call as v1 and as Production Log. Founder
   identity is still just a typed name stored in browser local storage
   (`ensureFounderIdentity()`), now driving rows in the shared `saved_items`
@@ -95,6 +107,13 @@ requirements.txt          Flask, flask-cors, pandas, openpyxl, psycopg2 (source
                            google-auth, sentence-transformers, httpx stack,
                            pydantic stack, cryptography stack, tenacity) — one
                            shared list for the whole repo
+.gitignore                 also covers each scraper's run output now
+                           (all_tenders.json/.xlsx, all_grants.json/.xlsx) --
+                           these were accidentally committed when the scrapers
+                           were first ported into this repo (the source dirs
+                           had prior-run output sitting in them at copy time);
+                           untracked via `git rm --cached`, left on disk
+
 executables/               double-click launchers, kept out of the repo root
   run_tenders.command,
   run_grants.command,
@@ -147,15 +166,24 @@ Website_frontend/         the live dashboard app; imported as Website_frontend.s
 
 database/                 imported as `database.db` (server.py: `from database import db`)
   db.py                    Postgres access: get_conn(), load_items(domain),
-                            upsert_item(domain, row), list_saved(domain),
-                            save_item()/remove_item(), saved_ids_for(), all_saved_ids()
-                            — one lazily-created global connection, same
+                            replace_items(domain, rows) (wipe+insert the whole
+                            table in one transaction -- NOT an upsert, see Key
+                            decisions), list_saved(domain) (reads saved_items'
+                            own snapshot columns, no join against tenders/grants,
+                            newest-saved-first), save_item() (snapshots the live
+                            row's data at save time), remove_item(),
+                            saved_ids_for(), all_saved_ids() — one
+                            lazily-created global connection, same
                             single-sync-worker rationale as Production_Log's db.py
-  schema.sql               tenders, grants, saved_items table definitions + RLS
-                            enable statements — run against Supabase, safe to re-run
+  schema.sql               tenders, grants, saved_items (now with its own title/
+                            sector/country/dates/budget/description/org/url
+                            snapshot columns, added via ALTER TABLE ADD COLUMN
+                            IF NOT EXISTS for upgrade safety) + RLS enable
+                            statements — run against Supabase, safe to re-run
   test_upsert_mapping.py    self-check for the scraper->Postgres row mapping (gate
                             on/off behaviour + budget-string-to-int parsing), with
-                            database.db.upsert_item monkeypatched
+                            database.db.replace_items monkeypatched (single
+                            batch call now, not one call per row)
 
 Scraper_backend_tenders/  ported from Project_Tender_Tool/Scraper_backend/, scraping
                            logic untouched
@@ -169,10 +197,14 @@ Scraper_backend_tenders/  ported from Project_Tender_Tool/Scraper_backend/, scra
                             runs top-level on import; NEVER import this module,
                             only run it as a script
   datasetManager.py         Live FX, budget/date parsing, Excel compiler — PLUS
-                            upsert_rows_to_postgres(), called right after
-                            excel_rows is built, gated on DATABASE_URL being set.
-                            _budget_to_int keeps the decimal point (a naive
-                            [^\d] strip inflated budgets ~100x -- see Landmines)
+                            write_rows_to_postgres(), called right after
+                            excel_rows is built, gated on DATABASE_URL being set,
+                            calls db.replace_items() once with the whole batch
+                            (not a per-row upsert). Primary Key is date-stamped
+                            per run (TND-DDMMYY-01, e.g. TND-200826-01), not
+                            year+sequential -- see Key decisions. _budget_to_int
+                            keeps the decimal point (a naive [^\d] strip
+                            inflated budgets ~100x -- see Landmines)
   llm_filtration.py         10-point rubric scorer + Gemini key rotation
                             (gemini-3.6-flash), falls back to Claude via
                             _score_with_claude when every key is rate-limited
@@ -221,13 +253,31 @@ the columns the dashboard actually reads, not every column the Excel workbook
 carries (Excel also has Original Currency, Days Remaining, Tender/Grant
 Status, Award Date — those stay Excel-only, unneeded by Postgres).
 
-`saved_items(id, domain, item_id, founder, saved_at)`, `UNIQUE(domain,
-item_id, founder)` — replaces the entire v1 per-founder-Excel-file design.
-`domain` is `'tenders'` or `'grants'`; `item_id` has no FK to
-`tenders`/`grants` on purpose — a save is a snapshot that should survive the
-source row being dropped by the next scrape, same intent as v1's per-founder
-snapshot files, just enforced by a real unique constraint instead of "don't
-let two machines write the same file."
+**`primary_key` is date-stamped per scrape run** (`TND-DDMMYY-01`,
+`TND-DDMMYY-02`, ... / `GRN-DDMMYY-01`, ...), generated fresh in
+`datasetManager.py`'s `json_to_excel` loop from that run's date + row index.
+This is deliberate: **`tenders`/`grants` are wiped and re-inserted in full on
+every run** (`db.replace_items()`), so the main sheet always reflects only
+the current week's scrape, never accumulating stale rows from prior weeks.
+There's no meaningful "same row as last week" to upsert against — a tender
+scraped again next week gets a new key under that week's date, even if it's
+the same real-world opportunity.
+
+`saved_items(id, domain, item_id, founder, title, sector, country,
+opening_date, closing_date, relevancy_score, inr_budget_maximum, description,
+organisation_name, url, saved_at)`, `UNIQUE(domain, item_id, founder)` —
+replaces the entire v1 per-founder-Excel-file design. `domain` is
+`'tenders'` or `'grants'`; `item_id` has no FK to `tenders`/`grants` on
+purpose. **Given the tables above get fully replaced every run, a save has
+to carry its own full snapshot of the item's data, not just a
+reference** — `db.save_item()` copies the item's current fields out of the
+live table at the moment it's starred, and `db.list_saved()` reads entirely
+from `saved_items`' own columns (no join back to `tenders`/`grants` at all)
+so a starred item keeps showing correctly even after the next scrape wipes
+the row it was copied from. This was verified end to end against the real
+database: replaced `tenders` with a fresh batch under new date-stamped keys,
+and a previously-saved tender (under the old week's key) still showed up
+in the saved list with its original data intact.
 
 RLS is enabled on all three tables with zero policies — see "Current state"
 above for why that's safe for how this app connects.
@@ -306,6 +356,77 @@ above for why that's safe for how this app connects.
   `github.event.schedule` would work but are more fragile than just having
   two independent, single-purpose workflow files. `notify-weekly.yml` follows
   the same one-workflow-one-purpose pattern.
+- **`tenders`/`grants` fully replaced every run, keyed by scrape date, not
+  upserted against a stable identity.** Explicit requirement, not a
+  side-effect: the main sheet should always show *only* the current week's
+  batch. The alternative (a stable content-hash key, upserting the same
+  real-world tender in place across weeks) was considered and rejected —
+  it's not what was wanted here. The real design cost of "replace weekly" is
+  that saves can no longer reference the main table at all (see next item).
+- **`saved_items` became a real snapshot, not a reference, as a direct
+  consequence of the item above.** Once `tenders`/`grants` get wiped weekly,
+  a `saved_items` row that only stored `item_id` and joined back to the live
+  table for its data would lose that data the moment the next scrape ran —
+  exactly what "saved tenders/grants preserved per founder" explicitly
+  requires *not* to happen. `db.save_item()` now copies the item's full
+  current data into `saved_items` at save time; `db.list_saved()` reads
+  those columns directly, no join. Caught a real instance of this while
+  building it: two pre-existing saves (made under the old reference-only
+  design) had gone snapshot-less the moment the schema changed — backfilled
+  from the still-live table before that data would have been lost for real
+  on the next scrape.
+
+### Local execution vs. full CI automation
+
+The original plan was full automation: both scrapers on a GitHub Actions
+schedule, Claude as an automatic fallback whenever Gemini got rate-limited,
+zero manual steps. That's still partly true — the workflows exist, are
+scheduled, and work — but real operational costs showed up that make
+**running the scrapers locally via `executables/run_*.command`/`.bat` the
+actual recommended path**, not just a fallback for when CI is inconvenient:
+
+- **Gemini rate limiting in CI wasn't a rare edge case, it was routine.** A
+  real scheduled run hit every one of 5 rotated Gemini keys 429-ing on
+  nearly every remaining item, cycling through key rotation and cooldown
+  waits repeatedly before falling back to a baseline score — consistent with
+  a genuine daily quota limit, not the transient per-minute limit the
+  rotator's cooldown logic was built to ride out. The run consumed its full
+  45-minute `timeout-minutes` budget mostly retrying calls that were never
+  going to succeed. Nothing was broken; the quota is just a real, hard
+  ceiling that a scheduled, unattended run has no way to see coming or work
+  around.
+- **The Claude fallback that was supposed to catch that requires a machine
+  that's already authenticated and *on*.** `llm_fallback.py`'s whole design
+  point (same pattern as `LinkedIn Automation/scripts/generator.py`) is
+  shelling out to the local `claude` CLI running on an interactive Pro/Max
+  login — free, but that login is tied to a specific logged-in machine.
+  GitHub's hosted runners are stateless VMs, fresh every run, with no
+  persisted login and no human available to click through a browser OAuth
+  flow unattended. The only way to make the fallback work in CI at all was
+  swapping to `ANTHROPIC_API_KEY` — the CLI's separate, headless,
+  pay-per-token auth mode, billed through the Anthropic Console, entirely
+  independent of (and in addition to) the Claude subscription already being
+  paid for. The alternative that avoids the extra cost — a self-hosted
+  runner, i.e. registering an actual always-on machine to GitHub Actions and
+  logging `claude` into it once — just relocates the "needs a machine that's
+  on and reachable" constraint rather than removing it, so it wasn't worth
+  building for what's fundamentally a once-a-week job.
+- **Debugging a scraper problem in CI means push, wait, re-run, read logs,
+  repeat** — every fix in this project's history (the `needrestart` hang,
+  the psycopg2 segfault, the primary-key bug) that touched something CI-side
+  cost several minutes of round-trip per attempt, on top of GitHub's own
+  scheduling delays (a cron trigger firing late by 10+ minutes turned out to
+  be normal, not a bug — see Landmines). Running locally, a failed run is
+  immediately visible in the terminal, with the same Postgres and the same
+  code, no push/wait cycle at all.
+- **Net effect: local execution is both cheaper (no `ANTHROPIC_API_KEY`
+  billing, Gemini's quota is the same either way but at least you see it
+  happen live) and faster to iterate on** than the fully-automated version,
+  for a job that only runs once a week and takes someone a few minutes to
+  kick off by double-clicking a launcher. The CI workflows are left in place
+  and scheduled — they're not broken, and still useful as a true "nobody
+  remembered to run it" safety net — but they're the fallback now, not the
+  primary path.
 
 ---
 
@@ -335,22 +456,35 @@ above for why that's safe for how this app connects.
   package's already-correct pattern. If either package is ever moved or
   restructured again, re-check this.
 - **`psycopg2-binary` segfaulted the Render worker on almost every request
-  that touched Postgres.** Symptom: `/api/grants/sensio-stream` (and
-  intermittently other routes) came back as an empty 502 with no error body
-  — nothing in Flask's own try/except caught it, because the actual failure
-  was `[ERROR] Worker (pid:NN) was sent code 139!` in gunicorn's log, i.e. a
-  real `SIGSEGV`, which a Python `except Exception` cannot catch at all. It
-  happened on nearly every request cycle (tenders' endpoint often "worked"
-  only because its response got sent before the crash landed), constantly
-  respawning the single gunicorn worker. Root cause: `psycopg2-binary`
-  bundles its own OpenSSL/libpq, which can conflict with a host's system
-  libraries — the psycopg2 project's own docs recommend it for local dev
-  only, not production. Fix: switched `requirements.txt` to source-built
-  `psycopg2==2.9.10` (links against the system libpq instead). Verified
-  buildable and working locally (needs `libpq`/`openssl` dev headers on
-  PATH — trivial on Linux/Render, needed explicit `LDFLAGS`/`CPPFLAGS` on
-  this Mac) before pushing. If a future dependency bump ever reintroduces
-  `-binary`, expect this exact symptom again.
+  that touched Postgres — but it took TWO fixes to actually resolve.**
+  Symptom: `/api/grants/sensio-stream` (and intermittently other routes)
+  came back as an empty 502 with no error body — nothing in Flask's own
+  try/except caught it, because the actual failure was
+  `[ERROR] Worker (pid:NN) was sent code 139!` in gunicorn's log, i.e. a
+  real `SIGSEGV`, which a Python `except Exception` cannot catch at all.
+  First fix: switched `requirements.txt` to source-built `psycopg2==2.9.10`
+  (links against the system libpq instead of `-binary`'s bundled
+  OpenSSL/libpq, which can conflict with a host's system libraries — the
+  psycopg2 project's own docs recommend `-binary` for local dev only).
+  Verified buildable and working locally (needs `libpq`/`openssl` dev
+  headers on PATH — trivial on Linux/Render, needed explicit
+  `LDFLAGS`/`CPPFLAGS` on this Mac). Deploy succeeded, but the identical
+  segfault persisted — same `code 139`, confirmed by triggering a fresh
+  request and checking the exact log lines right after, not just assumed.
+  Second, actual fix: `server.py`'s `calculate_days_remaining()` was the
+  only other native/C-extension code in that route's per-row loop, using
+  `pandas.to_datetime` — pandas' C-accelerated date parser, compiled
+  per-platform, didn't reproduce the crash locally (macOS ARM, Python 3.13)
+  against the exact same 51 real rows, while Render runs Linux x86_64 +
+  Python 3.12. Rewrote it to plain `datetime.strptime` (no pandas at all,
+  and the scraper already normalises `closing_date` to `YYYY-MM-DD` before
+  it reaches Postgres, so the flexible parsing pandas offered wasn't even
+  needed) and removed the now-dead `import pandas as pd` from `server.py`
+  entirely. That's what actually fixed it, confirmed by re-triggering a
+  request and re-checking Render's logs. If a future dependency bump ever
+  reintroduces `psycopg2-binary`, or pandas gets pulled back into a hot
+  per-row path in `server.py`, treat "empty 502, code 139 in logs" as this
+  same category of bug and check both.
 - **`DATABASE_URL` must be set** for the dashboard to show anything —
   Render env var in prod, local `.env` for dev, GitHub Actions repo secret
   for the scrapers. Needs the **session pooler** connection string in every
@@ -418,6 +552,36 @@ above for why that's safe for how this app connects.
   IDE — caught before commit. `schema.sql` should always be valid,
   re-runnable SQL; if a future edit to it fails in the Supabase SQL editor,
   check for exactly this kind of stray keystroke first.
+- **The `saved_items` snapshot rewrite broke `list_saved()` with a
+  `KeyError: 'primary_key'` in production**, caught immediately by testing
+  the actual live endpoints after deploy rather than assuming the local
+  self-checks covered it. `server.py`'s `_item_json()` does `row["primary_key"]`
+  — fine for `load_items()` (reads `tenders`/`grants`, which has a
+  `primary_key` column) but `list_saved()` now reads from `saved_items`,
+  whose equivalent column is `item_id`. Fixed by aliasing it in the SQL
+  (`latest.item_id AS primary_key`) so every row dict `_item_json()` touches
+  has the same shape regardless of which table it came from, rather than
+  special-casing the two call sites.
+- **Two real pre-existing saves went silently snapshot-less the moment the
+  schema changed**, since they were made under the old reference-only
+  design before `saved_items` had snapshot columns at all — `list_saved()`
+  would have shown them with every field `NULL` (renders as "Untitled
+  Grant" with blank everything). Backfilled by reading their still-live
+  `grants` row (hadn't been replaced by a new scrape yet) and copying the
+  snapshot fields in by hand, one time. If this repo is ever handed a
+  Supabase project with saves older than the snapshot rewrite, check for
+  this before assuming they're just broken.
+- **`all_tenders.json`/`all_tenders_pipeline.xlsx` (and the grants
+  equivalents) were accidentally committed to git**, swept up when the
+  scrapers were first ported into this repo — the source directories
+  (`Project_Tender_Tool/Scraper_backend/`, etc.) had prior-run output
+  sitting in them at copy time. Every real local scrape run then showed up
+  as modifying tracked files instead of being ignored. Fixed: added them to
+  `.gitignore` and `git rm --cached` (untracked, left on disk — they're
+  legitimate local output, just shouldn't be version-controlled). Both
+  files are cleanly overwritten every run (`json_to_excel` explicitly
+  `os.remove()`s the old Excel first; the JSON is opened `"w"`), never
+  accumulate or grow multiple sheets.
 - **Supabase free-tier project pauses after 7 days of zero activity** — same
   as `Production_Log`. Not data loss, but the dashboard will error until
   someone hits "restore" in the Supabase dashboard.
@@ -446,38 +610,23 @@ above for why that's safe for how this app connects.
   specs still work if a standalone build is ever needed again.
 - **Full JS/CSS unification beyond shared chrome** — see "Key decisions"
   above.
-- **A manual test run of both scrapers against the live Supabase project**,
-  triggered via `workflow_dispatch`, to confirm end-to-end before trusting
-  the first automatic weekend run.
 
 ---
 
 ## Ideas for future versions
 
-- **Claude fallback in CI currently costs real money (`ANTHROPIC_API_KEY`),
-  not your Pro/Max subscription.** `Scraper_backend_grants/llm_fallback.py`
-  shells out to the `claude` CLI when every Gemini key is exhausted — same
-  pattern as `LinkedIn Automation/scripts/generator.py`, which only ever runs
-  locally on a machine with an interactive `claude login` already done
-  (Pro/Max subscription, no extra cost). GitHub's hosted runners are fresh,
-  stateless VMs every run — there's no persisted login to reuse and no human
-  to click through a browser login unattended — so `scrape-grants.yml`
-  authenticates via `ANTHROPIC_API_KEY` instead (Anthropic Console, pay-per-
-  token, a repo secret) to make the fallback work there at all.
-  If the per-token cost ever matters enough to avoid: register a **self-hosted
-  runner** (your own machine or a persistent VM, added to this repo under
-  Settings -> Actions -> Runners) and point `scrape-grants.yml`'s
-  `runs-on:` at it instead of `ubuntu-latest`. Run `claude login` on that
-  machine once — after that, drop the `ANTHROPIC_API_KEY` env var from the
-  workflow entirely; `llm_fallback.py` just shells out to `claude` and uses
-  whatever auth is already configured on the machine it runs on, so the
-  fallback reuses the Pro/Max subscription for free from then on. Tradeoff:
-  that machine needs to actually be on and reachable whenever the scheduled
-  workflow fires (currently Sunday 4pm IST for grants).
-- **Tenders has no Claude fallback at all** (`main.py` just drops the item
-  when Gemini's exhausted) — porting `llm_fallback.py` over would need the
-  same CI setup (Node + the `claude` CLI + auth) added to
-  `scrape-tenders.yml` too.
+- **Self-hosted GitHub Actions runner**, if CI is ever wanted as more than a
+  safety net again — see "Local execution vs. full CI automation" under Key
+  decisions for the full reasoning. Register your own always-on machine
+  under Settings -> Actions -> Runners, point `scrape-tenders.yml`/
+  `scrape-grants.yml`'s `runs-on:` at it, run `claude login` on it once, and
+  drop the `ANTHROPIC_API_KEY` env var — `llm_fallback.py` just uses
+  whatever auth is already on the machine it runs on. Doesn't fix the
+  Gemini-quota problem though, which was the bigger issue.
+- **Split `requirements.txt` per deployment target** (`requirements-web.txt`
+  / `requirements-scraper.txt`) if Render's build time from compiling the
+  full scraper stack (Playwright, ML/crypto libs, psycopg2 from source) ever
+  actually becomes annoying — currently just slower, not broken.
 
 ---
 
@@ -488,6 +637,7 @@ above for why that's safe for how this app connects.
   project from `Production_Log`'s.
 - Access to the Render service (to update env vars or redeploy) and the
   `neha-palak/sensio_tender_and_grants` GitHub repo, including its Actions
-  secrets (`DATABASE_URL`, `GEMINI_API_KEYS`).
+  secrets (`DATABASE_URL`, `GEMINI_API_KEYS`, `ANTHROPIC_API_KEY`,
+  `SENDER_EMAIL`, `SENDER_APP_PASSWORD`, `RECIPIENT_EMAIL`, `DASHBOARD_URL`).
 - The `Project_Tender_Tool` and `Project_CFP_Tool` repos, kept as v1
   reference/rollback — not deployed anywhere, not touched by this migration.

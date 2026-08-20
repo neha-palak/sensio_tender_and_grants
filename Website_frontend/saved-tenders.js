@@ -135,7 +135,7 @@ function renderSavedTenders() {
     return `
       <section class="saved-founder-section" style="margin-bottom:34px;">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid var(--border-color, #e5e7eb);">
-          <span style="width:28px; height:28px; border-radius:50%; background:var(--color-teal, #0d9488); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;">${founder.charAt(0).toUpperCase()}</span>
+          <span style="width:28px; height:28px; border-radius:50%; background:var(--color-teal, #1f6181); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;">${founder.charAt(0).toUpperCase()}</span>
           <h2 style="font-size:16px; margin:0;">${founder}</h2>
           <span style="font-size:13px; color:var(--text-muted); font-weight:600;">${mine.length} saved</span>
         </div>

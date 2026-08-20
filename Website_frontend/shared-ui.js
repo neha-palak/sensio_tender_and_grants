@@ -98,7 +98,7 @@ function showIdentityModal(onSelect) {
   overlay.style.display = 'flex';
   overlay.innerHTML = `
     <div class="modal" style="max-width:360px;">
-      <div class="modal-header"><div class="modal-title">Who's using Sensio?</div></div>
+      <div class="modal-header"><div class="modal-title">Who's looking at Tender&amp;Grants</div></div>
       <div class="modal-section">
         <select id="founderIdentitySelect" class="filter-select" style="width:100%;">
           ${FOUNDER_NAMES.map(n => `<option value="${n}">${n}</option>`).join('')}
